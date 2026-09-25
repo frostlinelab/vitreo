@@ -3,14 +3,17 @@
 //!
 //! 窗口模式自带 egui 参数面板（Tab 或 H 键切换显示），可实时调节
 //! 形状 / 折射 / 色散 / 高光 / 模糊 / 着色 / 阴影，并支持预设、随机与截图。
+//! 背景可换成任意 PNG/JPG（按钮选择或直接拖图进窗口）。
 //!
 //! 用法：
 //! ```text
 //! cargo run -p minimal                       # 窗口模式，拖拽玻璃面板
+//! cargo run -p minimal -- --image photo.jpg  # 以图片为背景
 //! cargo run -p minimal -- --screenshot out.png [--size 1600x1000] [--depth 110]
 //! ```
 
 mod backdrop_gen;
+mod backdrop_image;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -33,6 +36,7 @@ struct Args {
     depth: f32,
     dispersion: f32,
     blur: f32,
+    image: Option<String>,
 }
 
 impl Default for Args {
@@ -46,6 +50,7 @@ impl Default for Args {
             depth: 110.0,
             dispersion: 0.15,
             blur: 2.5,
+            image: None,
         }
     }
 }
@@ -79,6 +84,7 @@ fn parse_args() -> Args {
             "--depth" => args.depth = value().parse().unwrap(),
             "--dispersion" => args.dispersion = value().parse().unwrap(),
             "--blur" => args.blur = value().parse().unwrap(),
+            "--image" => args.image = Some(value()),
             other => eprintln!("unknown argument: {other}"),
         }
     }
@@ -271,6 +277,31 @@ fn randomize_panel(state: &mut WindowState) {
     };
 }
 
+/// 按当前窗口尺寸重建背景纹理：有自定义图片用图片（cover 裁剪），否则用程序化渐变。
+fn rebuild_backdrop(state: &mut WindowState) {
+    let (w, h) = (state.config.width, state.config.height);
+    let rgba = match &state.backdrop_image {
+        Some((_, img)) => backdrop_image::fit_cover(img, w, h),
+        None => backdrop_gen::generate_backdrop(w, h),
+    };
+    state.backdrop = Backdrop::from_rgba(&state.device, &state.queue, w, h, &rgba);
+}
+
+/// 加载图片作为背景；失败时在面板上显示 4 秒错误提示。
+fn load_backdrop_file(state: &mut WindowState, path: &std::path::Path) {
+    match backdrop_image::load_image_rgba(path) {
+        Ok(img) => {
+            log::info!("背景图片已加载: {}", path.display());
+            state.backdrop_image = Some((path.to_path_buf(), img));
+            rebuild_backdrop(state);
+        }
+        Err(e) => {
+            log::error!("{e}");
+            state.backdrop_error = Some((e, state.egui_ctx.time() as f32));
+        }
+    }
+}
+
 /// egui 默认字体不含 CJK，注册平台系统中文字体（PingFang / 微软雅黑 / Noto CJK）。
 fn install_cjk_font(ctx: &egui::Context) {
     let candidates = [
@@ -429,6 +460,46 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
             ];
         }
     });
+    ui.horizontal(|ui| {
+        if ui
+            .button("🖼 背景图片…")
+            .on_hover_text("选择 PNG / JPG 作为背景；也可以直接把图片文件拖进窗口")
+            .clicked()
+        {
+            let pick = rfd::FileDialog::new()
+                .set_title("选择背景图片")
+                .add_filter("图片", &["png", "jpg", "jpeg"])
+                .set_parent(state.window.as_ref())
+                .pick_file();
+            if let Some(path) = pick {
+                load_backdrop_file(state, &path);
+            }
+        }
+        if ui
+            .button("默认背景")
+            .on_hover_text("恢复程序化生成的渐变网格背景")
+            .clicked()
+        {
+            state.backdrop_image = None;
+            rebuild_backdrop(state);
+        }
+    });
+    if let Some((path, _)) = &state.backdrop_image {
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("(未知文件)");
+        ui.label(egui::RichText::new(format!("背景: {name}")).small().weak());
+    }
+    if let Some((err, t)) = &state.backdrop_error {
+        if ui.ctx().time() - (*t as f64) < 4.0 {
+            ui.label(
+                egui::RichText::new(format!("⚠ {err}"))
+                    .small()
+                    .color(egui::Color32::LIGHT_RED),
+            );
+        }
+    }
     ui.separator();
 
     let panel = &mut state.panel;
@@ -629,6 +700,10 @@ struct WindowState {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     backdrop: Backdrop,
+    /// 自定义背景（原始解码图，窗口 resize 时按 cover 重新裁剪）。
+    backdrop_image: Option<(std::path::PathBuf, image::RgbaImage)>,
+    /// 最近一次背景加载错误（时间戳用于 4 秒后自动消失）。
+    backdrop_error: Option<(String, f32)>,
     compositor: Compositor,
     /// 离屏截图专用合成器（固定 Rgba8UnormSrgb，与 surface 格式解耦）。
     offscreen_compositor: Compositor,
@@ -741,6 +816,8 @@ impl App {
             surface,
             config,
             backdrop,
+            backdrop_image: None,
+            backdrop_error: None,
             compositor,
             offscreen_compositor,
             egui_ctx,
@@ -753,6 +830,13 @@ impl App {
             cursor: center,
             drag: None,
         });
+
+        // --image：启动时直接换背景（失败则回退默认背景并提示）
+        if let Some(path) = self.args.image.clone() {
+            if let Some(state) = &mut self.state {
+                load_backdrop_file(state, std::path::Path::new(&path));
+            }
+        }
     }
 
     fn render(&mut self) {
@@ -901,13 +985,7 @@ impl App {
         state.config.height = height;
         state.surface.configure(&state.device, &state.config);
 
-        state.backdrop = Backdrop::from_rgba(
-            &state.device,
-            &state.queue,
-            width,
-            height,
-            &backdrop_gen::generate_backdrop(width, height),
-        );
+        rebuild_backdrop(state);
 
         // 面板留在视口内
         for i in 0..2 {
@@ -972,6 +1050,11 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => self.render(),
             WindowEvent::Resized(size) => self.resize(size.width, size.height),
             WindowEvent::ScaleFactorChanged { .. } => self.apply_scale(),
+            WindowEvent::DroppedFile(path) => {
+                if let Some(ws) = &mut self.state {
+                    load_backdrop_file(ws, &path);
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(state) = &mut self.state {
                     state.cursor = [position.x as f32, position.y as f32];
@@ -1030,13 +1113,17 @@ fn run_screenshot(args: &Args, path: &str) {
             .await
             .expect("request device");
 
-        let backdrop = Backdrop::from_rgba(
-            &device,
-            &queue,
-            w,
-            h,
-            &backdrop_gen::generate_backdrop(w, h),
-        );
+        let rgba = match &args.image {
+            Some(p) => match backdrop_image::load_image_rgba(std::path::Path::new(p)) {
+                Ok(img) => backdrop_image::fit_cover(&img, w, h),
+                Err(e) => {
+                    eprintln!("{e}，改用默认背景");
+                    backdrop_gen::generate_backdrop(w, h)
+                }
+            },
+            None => backdrop_gen::generate_backdrop(w, h),
+        };
+        let backdrop = Backdrop::from_rgba(&device, &queue, w, h, &rgba);
         let compositor = Compositor::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
         let panel = GlassPanel {
             center: args
