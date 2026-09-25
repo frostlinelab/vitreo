@@ -1,0 +1,18 @@
+[package]
+name = "minimal"
+description = "Everywhere Glasses minimal demo: gradient backdrop + draggable glass panel."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+glasses-core = { path = "../../glasses-core" }
+wgpu = { workspace = true }
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { workspace = true }
+png = "0.17"
+log = "0.4"
+env_logger = "0.11"

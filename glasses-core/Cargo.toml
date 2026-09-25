@@ -1,0 +1,11 @@
+[package]
+name = "glasses-core"
+description = "Renderer-agnostic liquid-glass material layer for wgpu: SDF refraction, spectral dispersion, Fresnel."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
