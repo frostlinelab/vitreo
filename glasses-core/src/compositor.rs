@@ -161,6 +161,8 @@ impl Compositor {
     ///
     /// - `viewport`：目标尺寸（物理像素），与 `target` 一致；
     /// - `panels`：超出 [`MAX_PANELS`] 的部分被忽略。
+    // GPU 提交上下文 + 帧状态，7 个参数各自独立，打包反而增加调用方样板。
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         queue: &wgpu::Queue,

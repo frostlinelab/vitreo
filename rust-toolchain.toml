@@ -1,0 +1,3 @@
+[toolchain]
+# egui 0.36 的 MSRV；避免依赖各机器的全局 stable 版本
+channel = "1.95.0"

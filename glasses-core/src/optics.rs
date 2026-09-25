@@ -207,7 +207,7 @@ mod tests {
         fn fresnel_stays_in_range() {
             for i in 0..=20 {
                 let f = fresnel_schlick(i as f32 / 20.0, 0.0426);
-                assert!(f >= 0.0426 - 1e-6 && f <= 1.0 + 1e-6);
+                assert!((0.0426 - 1e-6..=1.0 + 1e-6).contains(&f));
             }
         }
     }

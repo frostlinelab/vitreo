@@ -50,7 +50,7 @@ impl Backdrop {
         let mut w = width;
         let mut h = height;
         for _ in 1..mip_level_count {
-            let (next, nw, nh) = downsample(&level_data.last().unwrap(), w, h);
+            let (next, nw, nh) = downsample(level_data.last().unwrap(), w, h);
             level_data.push(next);
             w = nw;
             h = nh;
@@ -103,7 +103,7 @@ impl Backdrop {
 }
 
 fn align_256(n: u32) -> u32 {
-    (n + 255) / 256 * 256
+    n.div_ceil(256) * 256
 }
 
 fn srgb_to_linear(c: u8) -> f32 {
@@ -171,7 +171,7 @@ mod tests {
         let (data, w, h) = (vec![200u8; 5 * 3 * 4], 5, 3);
         let (out, nw, nh) = downsample(&data, w, h);
         assert_eq!((nw, nh), (2, 1));
-        assert_eq!(out.len(), 2 * 1 * 4);
+        assert_eq!(out.len(), 2 * 4);
     }
 
     #[test]

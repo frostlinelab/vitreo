@@ -31,7 +31,7 @@ impl GlassPanel {
         sd_rounded_box(p, self.half_size(), self.corner_radius) < 0.0
     }
 
-    pub(crate) fn to_uniform(&self) -> PanelUniform {
+    pub(crate) fn to_uniform(self) -> PanelUniform {
         let style = &self.style;
         PanelUniform {
             center: self.center,
