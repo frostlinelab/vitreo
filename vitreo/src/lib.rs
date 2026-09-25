@@ -1,4 +1,4 @@
-//! # glasses-core
+//! # vitreo
 //!
 //! 渲染器无关的 Rust 玻璃材质层：一个基于 wgpu 的光学核心（SDF 折射、色散、Fresnel），
 //! 任何应用——egui、游戏、编辑器、overlay——都能给任意区域加上 Liquid Glass 级别的玻璃材质。
@@ -13,7 +13,7 @@
 //! ## 用法
 //!
 //! ```no_run
-//! # use glasses_core::{Backdrop, Compositor, GlassPanel, GlassStyle};
+//! # use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle};
 //! # fn docs(device: &wgpu::Device, queue: &wgpu::Queue) {
 //! // 1. 背景可以是任何 RGBA 纹理：静态图、离屏实时渲染、视频帧。
 //! let rgba = vec![0u8; 1600 * 1000 * 4];

@@ -1,4 +1,4 @@
-# Everywhere Glasses UI：跨平台 Rust 玻璃 UI 框架
+# Vitreo UI：跨平台 Rust 玻璃 UI 框架
 
 > 立项日期：2026-09-25 · 状态：P0 启动
 Tagline：**Write once, refract everywhere.**
@@ -21,8 +21,8 @@ Tagline：**Write once, refract everywhere.**
 ## 架构
 
 ```
-everywhere-glasses/
-├─ glasses-core      # 纯 wgpu：材质 + 合成器，零 UI 依赖
+vitreo/
+├─ vitreo      # 纯 wgpu：材质 + 合成器，零 UI 依赖
 │   ├─ glass.wgsl           # 折射 shader
 │   ├─ GlassStyle           # IOR、thickness、bezel、blur、tint、dispersion
 │   ├─ Backdrop             # 静态纹理 / 离屏实时纹理 / 视频帧
@@ -46,7 +46,7 @@ everywhere-glasses/
 - [ ]  **P1** — minimal demo：SDF 圆角面板、拖拽、折射 + 色散 + Fresnel 全开（核心验收）
 - [ ]  **P2** — 离屏 live backdrop 管线 + 多面板合成器
 - [ ]  **P3** — egui 绑定 crate + 弹簧形变动画
-- [ ]  **P4** — 发布 `glasses-core` 0.1 + showcase
+- [ ]  **P4** — 发布 `vitreo` 0.1 + showcase
 
 ## 致谢与参考
 

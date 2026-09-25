@@ -88,7 +88,10 @@ impl Backdrop {
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self { view, size: [width, height] }
+        Self {
+            view,
+            size: [width, height],
+        }
     }
 
     /// 纹理视图（绑定给合成器）。
@@ -178,7 +181,10 @@ mod tests {
     fn srgb_roundtrip() {
         for c in [0u8, 1, 64, 128, 200, 254, 255] {
             let back = linear_to_srgb(srgb_to_linear(c));
-            assert!((back as i32 - c as i32).abs() <= 1, "c = {c}, back = {back}");
+            assert!(
+                (back as i32 - c as i32).abs() <= 1,
+                "c = {c}, back = {back}"
+            );
         }
     }
 }

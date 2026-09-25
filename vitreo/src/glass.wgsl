@@ -1,4 +1,4 @@
-// glass.wgsl — Everywhere Glasses 核心合成 pass。
+// glass.wgsl — Vitreo 核心合成 pass。
 //
 // 输入是纯纹理背景（无 DOM 依赖），输出背景 + 任意数量玻璃面板的一次性合成。
 // 单面板光学管线：

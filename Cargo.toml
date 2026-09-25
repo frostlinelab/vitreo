@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["glasses-core", "examples/minimal"]
+members = ["vitreo", "examples/minimal"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/deciduous/everywhere-glasses"
+repository = "https://github.com/frostlinelab/vitreo"
 
 [workspace.dependencies]
 wgpu = "30"

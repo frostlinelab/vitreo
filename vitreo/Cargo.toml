@@ -1,5 +1,5 @@
 [package]
-name = "glasses-core"
+name = "vitreo"
 description = "Renderer-agnostic liquid-glass material layer for wgpu: SDF refraction, spectral dispersion, Fresnel."
 version.workspace = true
 edition.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "minimal"
-description = "Everywhere Glasses minimal demo: gradient backdrop + draggable glass panel."
+description = "Vitreo minimal demo: gradient backdrop + draggable glass panel."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-glasses-core = { path = "../../glasses-core" }
+vitreo = { path = "../../vitreo" }
 wgpu = { workspace = true }
 winit = "0.30"
 pollster = "0.4"

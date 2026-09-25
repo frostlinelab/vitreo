@@ -1,6 +1,6 @@
 //! 玻璃材质参数。
 
-use crate::optics::{IOR_CROWN_GLASS, abbe_spread};
+use crate::optics::{abbe_spread, IOR_CROWN_GLASS};
 
 /// 玻璃投影阴影。
 #[derive(Clone, Copy, Debug, PartialEq)]

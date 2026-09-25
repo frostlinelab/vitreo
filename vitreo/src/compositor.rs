@@ -185,11 +185,7 @@ impl Compositor {
         if count > 0 {
             let uniforms: Vec<PanelUniform> =
                 panels[..count].iter().map(|p| p.to_uniform()).collect();
-            queue.write_buffer(
-                &self.panels_buffer,
-                0,
-                bytemuck::cast_slice(&uniforms),
-            );
+            queue.write_buffer(&self.panels_buffer, 0, bytemuck::cast_slice(&uniforms));
         }
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

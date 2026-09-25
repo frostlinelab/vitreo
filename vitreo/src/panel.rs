@@ -1,6 +1,6 @@
 //! 玻璃面板：几何 + 材质。
 
-use crate::optics::{IOR_AIR, schlick_f0};
+use crate::optics::{schlick_f0, IOR_AIR};
 use crate::sdf2d::sd_rounded_box;
 use crate::style::GlassStyle;
 

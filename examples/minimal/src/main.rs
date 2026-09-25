@@ -1,4 +1,4 @@
-//! minimal —— Everywhere Glasses 的 P1 验收 demo：
+//! minimal —— Vitreo 的 P1 验收 demo：
 //! 渐变背景 + 可拖玻璃面板，折射 + 色散 + Fresnel 全开。
 //!
 //! 窗口模式自带 egui 参数面板（Tab 或 H 键切换显示），可实时调节
@@ -18,7 +18,7 @@ mod backdrop_image;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glasses_core::{Backdrop, Compositor, GlassPanel, GlassStyle, ShadowStyle};
+use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle, ShadowStyle};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -427,7 +427,7 @@ fn render_png(
 /// 面板本体（`Panel::right + show_collapsible`）在 render 循环里创建，这里只画内容。
 fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
     ui.add_space(4.0);
-    ui.heading("Everywhere Glasses");
+    ui.heading("Vitreo");
     ui.label(format!(
         "{:.0} fps · 拖动玻璃面板 · Tab 隐藏面板",
         state.fps
@@ -1013,7 +1013,7 @@ impl ApplicationHandler for App {
                 event_loop
                     .create_window(
                         Window::default_attributes()
-                            .with_title("Everywhere Glasses — minimal（拖玻璃 · Tab 调参数）")
+                            .with_title("Vitreo — minimal（拖玻璃 · Tab 调参数）")
                             .with_inner_size(winit::dpi::LogicalSize::new(1000.0, 640.0)),
                     )
                     .expect("create window"),
