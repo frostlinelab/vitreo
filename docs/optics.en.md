@@ -106,6 +106,10 @@ The factor $T/(2\varepsilon)$ scales the finite-difference slope into actual pix
 
 > **Why finite differences instead of analytic gradients?** $\varepsilon = 1$ px matches the shader's pixel grid, costs 4 SDF evaluations, and is exactly reproducible on the CPU oracle. The trade-off — slight stair-stepping of the normal field at 1 px scale — is invisible after the displacement is applied to a smoothly sampled backdrop.
 
+![Bevel profile with surface normals, and the panel's screen-space displacement field](figures/bevel.svg)
+
+*Figure 4 — (a) The quarter-circle bevel profile $z = T\,h(d, w)$ for the default material ($w = 34$ px, $T = 6$ px), with surface normals (Eq. 2.3) tilting outward as the edge approaches. (b) Screen-space displacement magnitude $\lVert\boldsymbol{\delta}\rVert$ (Eq. 3.5) for a 420×260 panel with $r = 64$: exactly zero on the plateau, swelling in a ring along the bevel and peaking at 31.52 px where the corner bevel is steepest. All values computed by a direct NumPy re-implementation of the shader math (`docs/figures/generate.py`).*
+
 ---
 
 ## 3. Refraction: Snell's law as a pixel offset
@@ -132,7 +136,7 @@ n_1 \sin\theta_1 = n_2 \sin\theta_2
 \tag{3.1}
 $$
 
-Entering a denser medium ($n_2 > n_1$), the ray bends *toward* the normal ($\theta_2 < \theta_1$): at 50° from air into crown glass, the transmitted angle is $\arcsin(\sin 50° / 1.52) = 30.26°$.
+Entering a denser medium ($n_2 > n_1$), the ray bends *toward* the normal ($\theta_2 < \theta_1$): at 50° from air into crown glass, the transmitted angle is $\arcsin(\sin 50° / 1.52) = 30.26°$ (Figure 1(a)).
 
 Going the other way, there is a **critical angle** beyond which no transmission exists:
 
@@ -141,7 +145,11 @@ $$
 \tag{3.2}
 $$
 
-For crown glass → air, $\theta_c = 41.14°$. Beyond it the wave cannot propagate into the second medium and **total internal reflection** (TIR) returns all the energy inward (Figure 1b); the field technically continues as a non-propagating **evanescent wave** hugging the interface. Fiber optics and diamond sparkle are this effect.
+For crown glass → air, $\theta_c = 41.14°$. Beyond it the wave cannot propagate into the second medium and **total internal reflection** (TIR) returns all the energy inward (Figure 1(b)); the field technically continues as a non-propagating **evanescent wave** hugging the interface. Fiber optics and diamond sparkle are this effect.
+
+![Snell refraction and total internal reflection at a dielectric interface](figures/snell.svg)
+
+*Figure 1 — Snell's law at a dielectric interface. (a) Air → crown glass ($n = 1.52$): a 50° incidence refracts to 30.26°, bending toward the normal (Eq. 3.1). (b) Crown glass → air beyond the critical angle $\theta_c = 41.14°$ (Eq. 3.2): no real transmission angle exists, the energy is totally internally reflected, and only an evanescent wave (dotted) grazes the interface. The shader experiences (b) as `refract()` returning the zero vector (§3.3).*
 
 ### 3.3 The WGSL `refract` convention
 
@@ -184,7 +192,7 @@ Displacement grows **linearly in $D$** (test-pinned) and **monotonically in the 
 
 ### 3.5 What the eye reads as "glass"
 
-Equation (3.5) explains the whole Liquid-Glass gestalt. On the plateau $\boldsymbol\delta = 0$ — the backdrop shows through undistorted, "clear". Across the bevel the normal sweeps from vertical to grazing, so $\lVert\delta\rVert$ swells from 0 to tens of pixels and decays again: the rim acts as a ring of cylindrical lenses, compressing and stretching the background exactly where a physical bevel would (Figure 4b). Human vision, exquisitely tuned to how transparent solids *warp* edges, reads that warp — not any highlight — as "this is glass".
+Equation (3.5) explains the whole Liquid-Glass gestalt. On the plateau $\boldsymbol\delta = 0$ — the backdrop shows through undistorted, "clear". Across the bevel the normal sweeps from vertical to grazing, so $\lVert\delta\rVert$ swells from 0 to tens of pixels and decays again: the rim acts as a ring of cylindrical lenses, compressing and stretching the background exactly where a physical bevel would (Figure 4(b)). Human vision, exquisitely tuned to how transparent solids *warp* edges, reads that warp — not any highlight — as "this is glass".
 
 ---
 
@@ -199,7 +207,7 @@ n(\lambda) = A + \frac{B}{\lambda^2}
 \tag{4.1}
 $$
 
-For **BK7**, the workhorse borosilicate crown glass, fitting the $d$ line (587.6 nm, $n_d = 1.5168$) and the F/C spread gives $A = 1.504590$, $B = 0.004216\ \mu\text{m}^2$ (Figure 3a). Glassmakers catalog the strength of dispersion by the **Abbe number**:
+For **BK7**, the workhorse borosilicate crown glass, fitting the $d$ line (587.6 nm, $n_d = 1.5168$) and the F/C spread gives $A = 1.504590$, $B = 0.004216\ \mu\text{m}^2$ (Figure 3(a)). Glassmakers catalog the strength of dispersion by the **Abbe number**:
 
 $$
 V_d = \frac{n_d - 1}{n_F - n_C}
@@ -207,6 +215,10 @@ V_d = \frac{n_d - 1}{n_F - n_C}
 $$
 
 where $F = 486.1$ nm (blue), $C = 656.3$ nm (red). *High* $V_d$ means *low* dispersion. BK7's $V_d = 64.17$, hence $n_F - n_C = (1.5168-1)/64.17 = 0.00805$ — less than one percent of IOR. `optics.rs::abbe_spread` implements exactly this inversion.
+
+![BK7 normal dispersion and the screen-space displacement spectrum](figures/dispersion.svg)
+
+*Figure 3 — Chromatic dispersion. (a) Normal dispersion of BK7, $n(\lambda) = A + B/\lambda^2$ (Eq. 4.1) with $A = 1.504590$, $B = 0.004216\ \mu\text{m}^2$; the F (486 nm), d (588 nm) and C (656 nm) catalog lines define the Abbe number $V_d = 64.17$ (Eq. 4.2). (b) The same physics translated into screen space (Eq. 3.5, bevel normal $(0.6, 0, 0.8)$, $D = 90$ px): with the physical spread, red and blue sampling points land 0.48 px apart — honest, but invisible at UI scale; Vitreo's default $\Delta n = 0.15$ stretches the gap to 7.0 px (§4.3).*
 
 ### 4.2 Per-channel refraction in the shader
 
@@ -221,7 +233,7 @@ and the result is normalized per channel by the summed weights. Equal weights in
 
 ### 4.3 The honest gap: physical vs artistic dispersion
 
-Applied literally, Eq. (4.2) is almost invisible: through a bevel normal and $D = 90$ px, BK7's red–blue displacement difference is **0.48 px** (Figure 3b, thin curve) — the thin-film honesty of real glass, and real UI glass *is* that subtle. Vitreo's default `dispersion = 0.15` — roughly 19× the BK7 spread — is an artistic choice inherited from the reference implementation, pushing the span to **7.0 px** so the spectral edge is legible at UI scale (Figure 3b, thick curve). The `GlassStyle::bk7_dispersion()` constructor exists for the physically-correct setting; `dispersion = 0` shortcuts to a single `refract` evaluation.
+Applied literally, Eq. (4.2) is almost invisible: through a bevel normal and $D = 90$ px, BK7's red–blue displacement difference is **0.48 px** (Figure 3(b), thin curve) — the thin-film honesty of real glass, and real UI glass *is* that subtle. Vitreo's default `dispersion = 0.15` — roughly 19× the BK7 spread — is an artistic choice inherited from the reference implementation, pushing the span to **7.0 px** so the spectral edge is legible at UI scale (Figure 3(b), thick curve). The `GlassStyle::bk7_dispersion()` constructor exists for the physically-correct setting; `dispersion = 0` shortcuts to a single `refract` evaluation.
 
 > **Three samples are enough.** The backdrop is displaced *spatially*, not re-shaded spectrally; a 3-tap weighted average reproduces the visual ensemble (cyan-ish fringe inside, red-ish fringe outside) without the cost or noise of a true spectral integral. This is the same trade-off game engines make, and it is honest about being an approximation.
 
@@ -244,6 +256,10 @@ with $\theta_t$ from Snell's law. Three regimes matter (Figure 2):
 - **Normal incidence:** $R_s = R_p = \left(\frac{n_1-n_2}{n_1+n_2}\right)^2$. Air→crown glass: $((1-1.52)/2.52)^2 = 0.0426$ — a pane reflects ~4% per surface, the everyday look of window glass.
 - **Brewster's angle** $\theta_B = \arctan(n_2/n_1) = 56.66°$: $R_p \to 0$ — p-polarized light transmits perfectly (polaroid sunglasses exploit this).
 - **Grazing incidence** $\theta \to 90°$: both polarizations → 1. Every dielectric becomes a mirror at grazing angles — this, not tint, is why a glass rim catches light and glows.
+
+![Exact Fresnel reflectance versus the Schlick approximation for air to crown glass](figures/fresnel.svg)
+
+*Figure 2 — Fresnel reflectance for air → crown glass ($n = 1.52$). Top: exact $R_s$, $R_p$ (Eq. 5.1) with Brewster's angle $\theta_B = 56.66°$ where $R_p \to 0$, the unpolarized mean, and Schlick's approximation (Eq. 5.2, dashed) anchored at $F_0 = 4.26\%$. Bottom: the approximation's deviation from the unpolarized exact mean stays within ±3.45 percentage points, peaking near 85° — imperceptible under the composite pass's specular lobe (§5.2).*
 
 ### 5.2 Schlick's approximation
 
