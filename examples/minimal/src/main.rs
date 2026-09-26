@@ -886,7 +886,7 @@ impl App {
         // Context 内部是 Arc，clone 廉价，且让 build_ui 能独占整个 state。
         let egui_ctx = state.egui_ctx.clone();
         let input = state.egui_state.take_egui_input(&state.window);
-        let full_output = egui_ctx.run_ui(input, |ui| {
+        let mut full_output = egui_ctx.run_ui(input, |ui| {
             // show_collapsible 会在拖边缘收起时翻转 is_expanded；
             // 先拷出 bool 再写回，避免与闭包对 state 的可变借用冲突。
             let mut show = std::mem::take(&mut state.show_panel);
@@ -900,6 +900,17 @@ impl App {
             .handle_platform_output(&state.window, full_output.platform_output);
         let clipped_primitives =
             egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+
+        // 纹理增量必须无条件处理：字体图集可能到某一帧才生成，而那一帧未必有
+        // 可绘制的几何体（clipped_primitives 为空）。漏处理会让字体纹理永远传不
+        // 上去，也会让 TexturesDelta 在析构时因未结清而触发 epaint 的 debug 断言。
+        for (id, deltas) in &full_output.textures_delta.set {
+            for delta in deltas {
+                state
+                    .egui_renderer
+                    .update_texture(&state.device, &state.queue, *id, delta);
+            }
+        }
 
         let pixels_per_point = state.window.scale_factor() as f32;
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
@@ -929,13 +940,6 @@ impl App {
                 &clipped_primitives,
                 &screen_descriptor,
             );
-            for (id, deltas) in &full_output.textures_delta.set {
-                for delta in deltas {
-                    state
-                        .egui_renderer
-                        .update_texture(&state.device, &state.queue, *id, delta);
-                }
-            }
             {
                 // forget_lifetime 消费 self，先转换再借给 render；
                 // 块结束时 pass 释放对 encoder 的借用，才能 finish。
@@ -961,16 +965,19 @@ impl App {
                     .egui_renderer
                     .render(&mut egui_pass, &clipped_primitives, &screen_descriptor);
             }
-            for id in &full_output.textures_delta.free {
-                state.egui_renderer.free_texture(id);
-            }
-
             let mut all = egui_cmds;
             all.push(encoder.finish());
             state.queue.submit(all);
         } else {
             state.queue.submit(Some(encoder.finish()));
         }
+
+        // 绘制结束后释放 egui 本帧不再引用的纹理。
+        for id in &full_output.textures_delta.free {
+            state.egui_renderer.free_texture(id);
+        }
+        full_output.textures_delta.clear();
+
         state.queue.present(frame);
     }
 
