@@ -54,7 +54,7 @@ cargo clippy --workspace  # keep it clean
 ## License & attribution (non-negotiable)
 
 - Vitreo is **MIT** (`LICENSE`).
-- Ported code (currently m2-md/liquid-glass-refraction-shader, jeantimex/glass-effect-webgpu, both MIT) must keep its credit in the module header, in `docs/optics.*.md` §9, and in the root project doc. New sources get credited the same way.
+- Ported code (currently m2-md/liquid-glass-refraction-shader, jeantimex/glass-effect-webgpu, both MIT) must keep its credit in the module header, in `docs/optics.*.md` §9, and in the README. New sources get credited in all three places.
 - **Never** copy code from a project whose license is incompatible with MIT or unknown. If you cannot verify the license, do not paste; reimplement from the physics and cite the *idea*.
 
 ## Philosophy
@@ -70,4 +70,4 @@ cargo clippy --workspace  # keep it clean
 
 ## Roadmap status
 
-P0 (DOM-free shader port) and P1 (minimal demo: full optics) are done. Next: **P2** offscreen live-backdrop pipeline + multi-panel Merge strategy for overlapping panels, then **P3** egui binding crate + spring animations, **P4** publish 0.1 + showcase. See the root project doc for details.
+P0 (DOM-free shader port) and P1 (minimal demo: full optics) are done. Next: **P2** offscreen live-backdrop pipeline + multi-panel Merge strategy for overlapping panels, then **P3** egui binding crate + spring animations, **P4** publish 0.1 + showcase. See README.md (or README.zh.md) for details.
