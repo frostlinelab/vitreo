@@ -40,6 +40,11 @@ vitreo/
 - 光学跨平台共享；corner radius、tint、控件形状做成 per-platform token
 - MIT 协议；致谢所有来源项目
 
+## 文档
+
+- [The Optics of Vitreo（英文主文档）](docs/optics.en.md) / [Vitreo 的光学（中文）](docs/optics.zh.md) — 论文风物理报告：SDF、bevel 法线、Snell 位移、色散、Fresnel，全部公式与图像由 `docs/figures/generate.py` 逐公式复刻源码生成
+- [AGENTS.md](AGENTS.md) — 给 AI 协作者的工作约定（对拍不变量、提交规范、许可证规则）
+
 ## Roadmap
 
 - [ ]  **P0** — 把 jeantimex 的 glass shader 抠成无 DOM 依赖的纯纹理输入版
