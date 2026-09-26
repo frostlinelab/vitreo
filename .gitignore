@@ -1,2 +1,6 @@
 /target
 .DS_Store
+
+# Python venv for docs/figures generation
+/.venv
+__pycache__/
