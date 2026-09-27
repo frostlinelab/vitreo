@@ -47,7 +47,7 @@ pub mod panel;
 pub mod sdf2d;
 pub mod style;
 
-pub use backdrop::Backdrop;
+pub use backdrop::{Backdrop, LiveBackdrop};
 pub use compositor::Compositor;
 pub use panel::GlassPanel;
 pub use style::{GlassStyle, ShadowStyle};
