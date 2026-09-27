@@ -2,7 +2,7 @@
 """生成《The Optics of Vitreo》文档的全部插图。
 
 图中所有曲线都逐公式复刻自 vitreo 源码（不是示意图）：
-  - sd_rounded_box / glass_height / glass_normal  ← vitreo/src/sdf2d.rs
+  - sd_rounded_box / glass_height / glass_normal / sdf_union  ← vitreo/src/sdf2d.rs
   - refract / refract_offset_px / fresnel_schlick ← vitreo/src/optics.rs
   - spectrum_weight / dispersed_ior               ← vitreo/src/glass.wgsl
 Rust 侧数学改动时请同步本文件。
@@ -24,6 +24,7 @@ matplotlib.use("Agg")
 
 import numpy as np
 from matplotlib import font_manager
+from matplotlib.colors import PowerNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Arc, FancyArrowPatch
 
@@ -481,6 +482,102 @@ def fig_bevel():
     save(fig, "bevel")
 
 
+# ======================================================================
+# Fig. 5 — 多面板合成：Stack vs Merge（并集 SDF 法线）
+# ======================================================================
+def fig_merge():
+    # 与 vitreo/src/sdf2d.rs merge_tests 相同的几何：
+    # A 中心 (0,0)，B 中心 (260,0)，半尺寸 (210,130)，r = 40，B 在上层。
+    half = (210.0, 130.0)
+    radius = 40.0
+    offset_b = 260.0
+    eps = 1.0  # NORMAL_EPS，与 WGSL/CPU oracle 一致
+
+    def d_a(x, y):
+        return sd_rounded_box(x, y, *half, radius)
+
+    def d_b(x, y):
+        return sd_rounded_box(x - offset_b, y, *half, radius)
+
+    def d_union(x, y):
+        return np.minimum(d_a(x, y), d_b(x, y))  # sdf_union：CSG 并集
+
+    def tilt(dfunc, px, py):
+        # glass_normal / union_normal 的平面内倾角 ‖n_xy‖（式 2.3 的差分公式，
+        # 与 Rust 侧一样做单位化）
+        hx = glass_height(dfunc(px + eps, py), STYLE_BEVEL) - glass_height(
+            dfunc(px - eps, py), STYLE_BEVEL
+        )
+        hy = glass_height(dfunc(px, py + eps), STYLE_BEVEL) - glass_height(
+            dfunc(px, py - eps), STYLE_BEVEL
+        )
+        k = STYLE_THICKNESS / (2.0 * eps)
+        nx, ny = -hx * k, -hy * k
+        length = np.sqrt(nx * nx + ny * ny + 1.0)
+        return np.hypot(nx, ny) / length
+
+    xs = np.arange(-half[0] - 30, offset_b + half[0] + 31, 1.0)
+    ys = np.arange(-half[1] - 30, half[1] + 31, 1.0)
+    px, py = np.meshgrid(xs, ys)
+
+    # (a) Stack：着色用"最上层的覆盖面板"自己的 SDF（B 覆盖处用 B，否则 A）。
+    inside_b = d_b(px, py) < 0
+    t_stack = np.where(inside_b, tilt(d_b, px, py), tilt(d_a, px, py))
+    # (b) Merge：法线来自并集 SDF —— 倒角只留在融合后的外轮廓上。
+    t_merge = tilt(d_union, px, py)
+
+    outside = d_union(px, py) >= 0
+    t_stack = np.ma.masked_where(outside, t_stack)
+    t_merge = np.ma.masked_where(outside, t_merge)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12.6, 4.9))
+    vmax = float(max(t_stack.max(), t_merge.max()))
+
+    for ax, t, title in [
+        (axes[0], t_stack,
+         "(a) Stack: top panel shades with its own SDF\n"
+         "Stack：上层用自身 SDF 着色，倒角环穿过重叠区内部"),
+        (axes[1], t_merge,
+         "(b) Merge: normals from the union SDF (fused)\n"
+         "Merge：法线来自并集 SDF，融合成一块连续玻璃"),
+    ]:
+        im = ax.imshow(
+            t, extent=[xs[0], xs[-1], ys[-1], ys[0]], aspect="equal",
+            cmap="viridis", origin="upper",
+            # 1px 边界 AA 尖峰 (~0.7) 会压扁 bevel 环带 (0.05–0.45) 的对比度，
+            # 伽马 <1 拉伸低值区，让 (a) 的内部接缝与 (b) 的平坦重叠区一眼可辨。
+            norm=PowerNorm(0.5, vmin=0.0, vmax=vmax),
+        )
+        ax.contour(px, py, d_a(px, py), levels=[0], colors="white",
+                   linewidths=1.0, linestyles="--")
+        ax.contour(px, py, d_b(px, py), levels=[0], colors="white",
+                   linewidths=1.0, linestyles="--")
+        ax.contour(px, py, d_union(px, py), levels=[0], colors="white", linewidths=1.8)
+        ax.set_xlabel("x (px)")
+        ax.set_ylabel("y (px, screen down 屏幕向下)")
+        ax.set_title(title, fontsize=10)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
+        cbar.set_label("normal tilt 法线倾角 $\\|\\mathbf{n}_{xy}\\|$", fontsize=9)
+
+    axes[0].text(-105, 0, "A", color="white", fontsize=13, ha="center", va="center",
+                 fontweight="bold")
+    axes[0].text(offset_b + 105, 0, "B", color="white", fontsize=13, ha="center",
+                 va="center", fontweight="bold")
+    axes[0].annotate("interior seam 内部接缝",
+                     (offset_b - half[0] + 10, -96), xytext=(offset_b - 30, -142),
+                     color="white", fontsize=9, ha="center",
+                     arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+    axes[1].text(offset_b + 105, 0, "fused 融合体", color="white", fontsize=10,
+                 ha="center", va="center")
+    axes[1].annotate("seam eliminated 接缝消失",
+                     (offset_b - half[0] + 10, -96), xytext=(offset_b - 30, -142),
+                     color="white", fontsize=9, ha="center",
+                     arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+
+    fig.tight_layout()
+    save(fig, "merge")
+
+
 def main():
     setup_fonts()
     print("generating figures:")
@@ -488,6 +585,7 @@ def main():
     fig_fresnel()
     fig_dispersion()
     fig_bevel()
+    fig_merge()
 
     # ---- 供文档引用的数值（打印出来核对） ----
     print("\nworked examples for the doc:")
@@ -512,6 +610,25 @@ def main():
         - np.linalg.norm(refract_offset_px(n_probe, 1.0 / ns[-1], STYLE_DEPTH)))
     print(f"  red<->blue displacement span 红蓝位移差 (depth 90): "
           f"BK7 {span(n_phys):.2f} px, Vitreo 0.15 {span(n_art):.1f} px")
+
+    # merge 算例（与 sdf2d.rs::merge_tests 同几何）：并集法线的 x 分量。
+    def merge_probe_nx(x):
+        y = 0.0
+
+        def d(X):
+            return min(
+                float(sd_rounded_box(X, y, 210, 130, 40)),
+                float(sd_rounded_box(X - 260, y, 210, 130, 40)),
+            )
+
+        hx = (glass_height(np.array([d(x + 1)]), STYLE_BEVEL)[0]
+              - glass_height(np.array([d(x - 1)]), STYLE_BEVEL)[0])
+        return float(-hx * STYLE_THICKNESS / 2.0)
+
+    print("  merge union-normal nx (A + B at +260px, half 210x130, r 40):")
+    print(f"    x =  60 (10px inside B's left edge, deep in A): {merge_probe_nx(60.0):+.4f}  (seam absorbed 接缝被吸收)")
+    print(f"    x = 130 (overlap interior 重叠区内部):          {merge_probe_nx(130.0):+.4f}")
+    print(f"    x = 460 (fused outer bevel 融合外轮廓 bevel):   {merge_probe_nx(460.0):+.4f}")
 
 
 if __name__ == "__main__":
