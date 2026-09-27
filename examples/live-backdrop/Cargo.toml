@@ -1,0 +1,20 @@
+[package]
+name = "live-backdrop"
+description = "Vitreo P2 demo: the app renders its own animated scene offscreen and the glass refracts it (LiveBackdrop + Stack/Merge)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+vitreo = { path = "../../vitreo" }
+wgpu = { workspace = true }
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { workspace = true }
+log = "0.4"
+env_logger = "0.11"
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = "0.36"
