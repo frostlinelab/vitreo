@@ -1,7 +1,7 @@
 # Vitreo
 
 > **Write once, refract everywhere.（折射写一次，处处皆玻璃。）**
-> 立项 2026-09-25 · MIT · 状态：P1 完成，P2 进行中
+> 立项 2026-09-25 · MIT · 状态：P2 完成，P3 进行中
 
 渲染器无关的 Rust 玻璃材质层，基于 wgpu：单次片元着色完成 SDF 折射、色散与 Fresnel 边缘辉光。任何应用——egui、游戏、编辑器、overlay——都能给任意区域加上 Apple **Liquid Glass** 级别的玻璃材质。英文文档：[README.md](README.md)
 
@@ -26,7 +26,7 @@ vitreo/            # 纯 wgpu：材质 + 合成器，零 UI 依赖
 glasses-egui       # egui 绑定（LiveBackdrop 离屏管线）—— 计划中（P3）
 examples/
 ├─ minimal         # 渐变/图片背景 + 可拖玻璃面板 ✓
-├─ live-backdrop   # 折射应用自己渲染的场景 —— 计划中（P2）
+├─ live-backdrop   # 折射应用自己渲染的场景：LiveBackdrop + Merge ✓
 └─ tuner           # 参数游乐场 —— 计划中（P3+）
 ```
 
@@ -40,11 +40,17 @@ cargo run -p minimal
 
 会打开一个渐变背景 + 可拖拽玻璃面板的窗口。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
 
+```sh
+cargo run -p live-backdrop
+```
+
+P2 验收 demo：玻璃折射的是示例**自己渲染**的动画场景（aurora + 网格）。两块面板初始故意重叠——`M` 键在 Stack（逐层覆盖）与 Merge（并集融合成一块连续玻璃）之间切换。
+
 ## 路线图
 
 - [x] **P0** — 把 jeantimex 的 glass shader 抠成无 DOM 依赖的纯纹理输入版
 - [x] **P1** — minimal demo：SDF 圆角面板、拖拽、折射 + 色散 + Fresnel 全开（核心验收）
-- [ ] **P2** — 离屏 live-backdrop 管线 + 多面板合成器
+- [x] **P2** — 离屏 live-backdrop 管线 + 多面板合成器（Stack/Merge）
 - [ ] **P3** — egui 绑定 crate + 弹簧形变动画
 - [ ] **P4** — 发布 `vitreo` 0.1 + showcase
 

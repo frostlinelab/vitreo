@@ -1,7 +1,7 @@
 # Vitreo
 
 > **Write once, refract everywhere.**
-> Founded 2026-09-25 · MIT · status: P1 done, P2 next
+> Founded 2026-09-25 · MIT · status: P2 done, P3 next
 
 A renderer-agnostic Rust glass-material layer built on wgpu: SDF refraction, chromatic dispersion, and Fresnel edge glow in one fragment pass. Any application — egui, games, editors, overlays — can give any region an Apple **Liquid Glass**-grade glass material. 中文说明：[README.zh.md](README.zh.md)
 
@@ -26,7 +26,7 @@ vitreo/            # pure wgpu: material + compositor, zero UI deps
 glasses-egui       # egui bindings (LiveBackdrop offscreen pipeline) — planned (P3)
 examples/
 ├─ minimal         # gradient/image backdrop + draggable glass panel ✓
-├─ live-backdrop   # refracting the app's own rendered scene — planned (P2)
+├─ live-backdrop   # refracting the app's own rendered scene: LiveBackdrop + Merge ✓
 └─ tuner           # parameter playground — planned (P3+)
 ```
 
@@ -40,11 +40,17 @@ cargo run -p minimal
 
 A gradient backdrop with a draggable glass panel opens. Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
 
+```sh
+cargo run -p live-backdrop
+```
+
+The P2 acceptance demo: the glass refracts a scene the example **renders itself** (aurora + grid). Two panels start deliberately overlapping — press `M` to switch between Stack (later panel covers) and Merge (panels fuse into one continuous glass body).
+
 ## Roadmap
 
 - [x] **P0** — strip jeantimex's glass shader into a DOM-free, pure-texture-input version
 - [x] **P1** — minimal demo: SDF rounded panel, dragging, full refraction + dispersion + Fresnel (core acceptance)
-- [ ] **P2** — offscreen live-backdrop pipeline + multi-panel compositor
+- [x] **P2** — offscreen live-backdrop pipeline + multi-panel compositor (Stack/Merge)
 - [ ] **P3** — egui binding crate + spring deformation animation
 - [ ] **P4** — publish `vitreo` 0.1 + showcase
 

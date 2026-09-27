@@ -15,9 +15,10 @@ vitreo/            # core crate: pure wgpu, zero UI deps
   src/optics.rs    #   CPU oracle: refract / dispersion / Fresnel (mirrors WGSL)
   src/panel.rs     #   GlassPanel + PanelUniform (96-byte layout, must match WGSL)
   src/style.rs     #   GlassStyle / ShadowStyle (the public material API)
-  src/backdrop.rs  #   backdrop texture wrapper
-  src/compositor.rs#   multi-panel compositor (max 8 panels, later = on top)
+  src/backdrop.rs  #   backdrop textures: static from_rgba / from_view + LiveBackdrop (offscreen, GPU mips)
+  src/compositor.rs#   multi-panel compositor (max 8 panels, Stack/Merge strategies)
 examples/minimal   # gradient/image backdrop + draggable glass panel (egui params)
+examples/live-backdrop  # glass refracting the app's own offscreen scene; M toggles Merge
 docs/optics.*.md   # physics report (EN primary, ZH translation)
 docs/figures/      # bilingual figure pipeline, see below
 ```
@@ -37,7 +38,7 @@ If you change any formula, update **all** of them in the same commit, run the te
 
 ```sh
 cargo build --workspace   # incremental is usually fast
-cargo test  --workspace   # 31 optics/sdf/layout tests + doc tests
+cargo test  --workspace   # 38 optics/sdf/layout/strategy tests + doc tests
 cargo clippy --workspace  # keep it clean
 ```
 
@@ -70,4 +71,4 @@ cargo clippy --workspace  # keep it clean
 
 ## Roadmap status
 
-P0 (DOM-free shader port) and P1 (minimal demo: full optics) are done. Next: **P2** offscreen live-backdrop pipeline + multi-panel Merge strategy for overlapping panels, then **P3** egui binding crate + spring animations, **P4** publish 0.1 + showcase. See README.md (or README.zh.md) for details.
+P0 (DOM-free shader port), P1 (minimal demo: full optics) and P2 (LiveBackdrop offscreen pipeline + Stack/Merge compositor) are done. Next: **P3** egui binding crate (`glasses-egui` + spring animations), then **P4** publish 0.1 + showcase. See README.md (or README.zh.md) for details.
