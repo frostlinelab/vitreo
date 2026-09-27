@@ -16,13 +16,38 @@ struct GlobalsUniform {
     viewport: [f32; 2],
     time: f32,
     panel_count: u32,
+    strategy: u32,
+    _pad: [f32; 3], // WGSL uniform 地址空间要求 struct 大小为 16 的倍数
+}
+
+/// 多面板重叠区域的合成策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompositeStrategy {
+    /// 逐层覆盖（默认）：按数组顺序混色，下标越靠后越靠上层。
+    /// 重叠区显示最上层面板对**背景**的折射，下层玻璃在重叠处不可见。
+    #[default]
+    Stack,
+    /// 并集融合：重叠面板按并集 SDF 融合成一块连续玻璃，
+    /// 倒角高光环只出现在融合后的外轮廓，内部接缝消失
+    /// （法线来自并集高度场，见 `docs/optics.*.md` 的多面板一节）。
+    /// 材质参数取覆盖该像素的最上层面板。
+    Merge,
+}
+
+impl CompositeStrategy {
+    fn to_u32(self) -> u32 {
+        match self {
+            CompositeStrategy::Stack => 0,
+            CompositeStrategy::Merge => 1,
+        }
+    }
 }
 
 /// 玻璃合成器。
 ///
-/// 面板按数组顺序绘制：**下标越靠后越靠上层**（Stack 策略）。
 /// 目标纹理格式应当是 sRGB 编码（如 `Bgra8UnormSrgb`），
 /// shader 内部全程在线性空间工作，由目标格式负责编码。
+/// 重叠面板的合成方式由 [`CompositeStrategy`] 决定。
 pub struct Compositor {
     device: wgpu::Device,
     pipeline: wgpu::RenderPipeline,
@@ -160,8 +185,9 @@ impl Compositor {
     /// 把 `backdrop` + `panels` 合成到 `target`。
     ///
     /// - `viewport`：目标尺寸（物理像素），与 `target` 一致；
+    /// - `strategy`：重叠面板的合成策略（[`CompositeStrategy::Stack`] / [`CompositeStrategy::Merge`]）；
     /// - `panels`：超出 [`MAX_PANELS`] 的部分被忽略。
-    // GPU 提交上下文 + 帧状态，7 个参数各自独立，打包反而增加调用方样板。
+    // GPU 提交上下文 + 帧状态，8 个参数各自独立，打包反而增加调用方样板。
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
@@ -171,6 +197,7 @@ impl Compositor {
         target: &wgpu::TextureView,
         viewport: [f32; 2],
         time: f32,
+        strategy: CompositeStrategy,
         panels: &[GlassPanel],
     ) {
         let count = panels.len().min(MAX_PANELS);
@@ -179,6 +206,8 @@ impl Compositor {
             viewport,
             time,
             panel_count: count as u32,
+            strategy: strategy.to_u32(),
+            _pad: [0.0; 3],
         };
         queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
@@ -231,5 +260,28 @@ impl Compositor {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.draw(0..4, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 与 glass.wgsl 的 Globals 逐字节一致：
+    // viewport @0 vec2f, time @8, panel_count @12, strategy @16, _pad @20..32。
+    #[test]
+    fn globals_layout_matches_wgsl() {
+        assert_eq!(std::mem::offset_of!(GlobalsUniform, viewport), 0);
+        assert_eq!(std::mem::offset_of!(GlobalsUniform, time), 8);
+        assert_eq!(std::mem::offset_of!(GlobalsUniform, panel_count), 12);
+        assert_eq!(std::mem::offset_of!(GlobalsUniform, strategy), 16);
+        assert_eq!(std::mem::size_of::<GlobalsUniform>(), 32);
+    }
+
+    // 判别值被 shader 用来分支，不能随手改。
+    #[test]
+    fn strategy_discriminants_match_wgsl_constants() {
+        assert_eq!(CompositeStrategy::Stack.to_u32(), 0);
+        assert_eq!(CompositeStrategy::Merge.to_u32(), 1);
     }
 }

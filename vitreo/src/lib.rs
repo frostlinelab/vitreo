@@ -48,6 +48,6 @@ pub mod sdf2d;
 pub mod style;
 
 pub use backdrop::{Backdrop, LiveBackdrop};
-pub use compositor::Compositor;
+pub use compositor::{Compositor, CompositeStrategy};
 pub use panel::GlassPanel;
 pub use style::{GlassStyle, ShadowStyle};

@@ -12,10 +12,18 @@ const MAX_PANELS: u32 = 8u;
 const SPECTRAL_SAMPLES: u32 = 3u;
 const NORMAL_EPS: f32 = 1.0;
 
+// 合成策略（与 Rust 侧 CompositeStrategy 的判别值一致）。
+const STRATEGY_STACK: u32 = 0u;
+const STRATEGY_MERGE: u32 = 1u;
+
 struct Globals {
     viewport: vec2f,   // 物理像素
     time: f32,         // 秒
     panel_count: u32,
+    strategy: u32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,        // uniform 地址空间要求 struct 大小为 16 的倍数
 }
 
 // 面板 uniform（96 字节，与 Rust 侧 PanelUniform 逐字节一致；不用 vec3 占位，
@@ -129,10 +137,9 @@ fn refract_backdrop(pixel: vec2f, n: vec3f, panel: PanelData, lod: f32) -> vec3f
 
 // ---------- 单面板着色 ----------
 
-fn shade_glass(pixel: vec2f, panel: PanelData) -> vec3f {
-    let p = pixel - panel.center;
-    let n = glass_normal(p, panel.half_size, panel.corner_radius, panel.bevel, panel.thickness);
-
+// 给定表面法线，完成折射/色散 → Fresnel 辉光 → 镜面高光 → 染色。
+// 单面板（Stack）与并集融合（Merge）共用这条着色路径。
+fn shade_glass_pixel(pixel: vec2f, n: vec3f, panel: PanelData) -> vec3f {
     let refr = refract_backdrop(pixel, n, panel, blur_lod(panel.blur));
 
     // Schlick–Fresnel：掠射角（边缘）处混入辉光色。
@@ -148,6 +155,84 @@ fn shade_glass(pixel: vec2f, panel: PanelData) -> vec3f {
 
     // 可选染色。
     return mix(col, panel.tint.rgb, panel.tint.a);
+}
+
+fn shade_glass(pixel: vec2f, panel: PanelData) -> vec3f {
+    let p = pixel - panel.center;
+    let n = glass_normal(p, panel.half_size, panel.corner_radius, panel.bevel, panel.thickness);
+    return shade_glass_pixel(pixel, n, panel);
+}
+
+// ---------- 多面板：Merge（并集融合，与 sdf2d.rs 的并集法线对应） ----------
+
+// 所有面板的并集 SDF：内部为负。重叠区的融合几何全部来自它。
+fn union_sdf(pixel: vec2f, count: u32) -> f32 {
+    var d = 1e30;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let panel = panels[i];
+        d = min(d, sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius));
+    }
+    return d;
+}
+
+// 并集高度场的有限差分法线：倒角只出现在并集外轮廓，
+// 重叠内部没有内边缘 —— 这就是"融合成一块玻璃"的几何来源。
+fn union_normal(pixel: vec2f, count: u32, bevel: f32, thickness: f32) -> vec3f {
+    let ex = vec2f(NORMAL_EPS, 0.0);
+    let ey = vec2f(0.0, NORMAL_EPS);
+    let hx = glass_height(union_sdf(pixel + ex, count), bevel)
+           - glass_height(union_sdf(pixel - ex, count), bevel);
+    let hy = glass_height(union_sdf(pixel + ey, count), bevel)
+           - glass_height(union_sdf(pixel - ey, count), bevel);
+    let k = thickness / (2.0 * NORMAL_EPS);
+    return normalize(vec3f(-hx * k, -hy * k, 1.0));
+}
+
+// 材质参数取覆盖该像素的最上层面板（数组末尾最上层）；
+// 抗锯齿边缘带内没有面板严格包含像素，退回取离并集边缘最近者。
+fn merge_material(pixel: vec2f, count: u32) -> PanelData {
+    for (var i = count; i > 0u; i = i - 1u) {
+        let panel = panels[i - 1u];
+        let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+        if (d < 0.0) {
+            return panel;
+        }
+    }
+    var mat = panels[0];
+    var nearest = 1e30;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let panel = panels[i];
+        let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+        if (d < nearest) {
+            nearest = d;
+            mat = panel;
+        }
+    }
+    return mat;
+}
+
+fn shade_merged(pixel: vec2f, count: u32) -> vec3f {
+    let mat = merge_material(pixel, count);
+    let n = union_normal(pixel, count, mat.bevel, mat.thickness);
+    return shade_glass_pixel(pixel, n, mat);
+}
+
+// 并集外的软阴影：各面板按自己的 shadow 参数在自身 SDF 上贡献，
+// 玻璃覆盖处（并集内）不投阴影。
+fn merged_shadow(pixel: vec2f, count: u32, color: vec3f) -> vec3f {
+    var c = color;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let panel = panels[i];
+        if (panel.shadow.x <= 0.0) {
+            continue;
+        }
+        let sp = pixel - panel.center - panel.shadow.zw;
+        let sd = sd_rounded_box(sp, panel.half_size, panel.corner_radius);
+        let blur = max(panel.shadow.y, 1.0);
+        let a = smoothstep(-blur, blur * 0.5, -sd) * panel.shadow.x;
+        c = mix(c, vec3f(0.0), a);
+    }
+    return c;
 }
 
 // ---------- 全屏 pass ----------
@@ -175,21 +260,34 @@ fn fs_main(input: VertexOut) -> @location(0) vec4f {
     var color = sample_backdrop(pixel, 0.0);
 
     let count = min(globals.panel_count, MAX_PANELS);
-    for (var i = 0u; i < count; i = i + 1u) {
-        let panel = panels[i];
-        let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+    if (globals.strategy == STRATEGY_MERGE && count > 0u) {
+        // Merge：所有面板按并集 SDF 融合成一块连续玻璃。
+        let d = union_sdf(pixel, count);
         let coverage = 1.0 - smoothstep(-1.0, 1.0, d); // 1px 抗锯齿边缘
-
         if (coverage > 0.0) {
-            let shaded = shade_glass(pixel, panel);
+            let shaded = shade_merged(pixel, count);
             color = mix(color, shaded, coverage);
-        } else if (panel.shadow.x > 0.0) {
-            // 面板外：SDF 软阴影。
-            let sp = pixel - panel.center - panel.shadow.zw;
-            let sd = sd_rounded_box(sp, panel.half_size, panel.corner_radius);
-            let blur = max(panel.shadow.y, 1.0);
-            let a = smoothstep(-blur, blur * 0.5, -sd) * panel.shadow.x;
-            color = mix(color, vec3f(0.0), a);
+        } else {
+            color = merged_shadow(pixel, count, color);
+        }
+    } else {
+        // Stack：按数组顺序逐层覆盖，下标越靠后越靠上层。
+        for (var i = 0u; i < count; i = i + 1u) {
+            let panel = panels[i];
+            let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+            let coverage = 1.0 - smoothstep(-1.0, 1.0, d); // 1px 抗锯齿边缘
+
+            if (coverage > 0.0) {
+                let shaded = shade_glass(pixel, panel);
+                color = mix(color, shaded, coverage);
+            } else if (panel.shadow.x > 0.0) {
+                // 面板外：SDF 软阴影。
+                let sp = pixel - panel.center - panel.shadow.zw;
+                let sd = sd_rounded_box(sp, panel.half_size, panel.corner_radius);
+                let blur = max(panel.shadow.y, 1.0);
+                let a = smoothstep(-blur, blur * 0.5, -sd) * panel.shadow.x;
+                color = mix(color, vec3f(0.0), a);
+            }
         }
     }
 

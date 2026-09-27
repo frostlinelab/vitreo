@@ -368,6 +368,7 @@ fn render_png(
         &view,
         [w as f32, h as f32],
         0.0,
+        vitreo::CompositeStrategy::Stack,
         std::slice::from_ref(panel),
     );
 
@@ -929,6 +930,7 @@ impl App {
             &view,
             [state.config.width as f32, state.config.height as f32],
             time,
+            vitreo::CompositeStrategy::Stack,
             &panels,
         );
 

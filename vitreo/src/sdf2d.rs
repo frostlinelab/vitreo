@@ -1,7 +1,7 @@
 //! 2D SDF 与玻璃表面几何 —— 移植自 [m2-md/liquid-glass-refraction-shader](https://github.com/m2-md/liquid-glass-refraction-shader)（MIT）的 `sdf2d.ts`。
 //!
-//! 与 `glass.wgsl` 内的 `sd_rounded_box` / `glass_height` / `glass_normal` 一一对应，
-//! 签名与参数顺序保持一致。
+//! 与 `glass.wgsl` 内的 `sd_rounded_box` / `glass_height` / `glass_normal` /
+//! `union_sdf` / `union_normal` 一一对应，签名与参数顺序保持一致。
 
 use crate::optics::Vec3;
 
@@ -16,12 +16,41 @@ pub fn sd_rounded_box(p: [f32; 2], b: [f32; 2], r: f32) -> f32 {
     inner + outer - r
 }
 
+/// 两个 SDF 的并集：取 min。内部为负的区域合并，
+/// 是多面板 Merge（并集融合）策略的几何基础。
+pub fn sdf_union(a: f32, b: f32) -> f32 {
+    a.min(b)
+}
+
 /// bevel 高度场：`d` 为到边缘的有符号距离（内部为负），`w` 为 bevel 宽度。
 /// 边缘处返回 0，bevel 结束处返回 1（四分之一圆弧轮廓）。
 pub fn glass_height(d: f32, w: f32) -> f32 {
     let x = (-d / w.max(1e-3)).clamp(0.0, 1.0);
     let t = 1.0 - x;
     (1.0 - t * t).max(0.0).sqrt()
+}
+
+/// 由任意 SDF 高度场的有限差分构造表面法线。
+///
+/// [`glass_normal`] 是它对单个圆角盒的特化；Merge 策略的并集法线
+/// （WGSL `union_normal`）同样由它表达 —— 对并集 SDF 取差分。
+pub fn glass_normal_sdf(
+    p: [f32; 2],
+    sdf: impl Fn([f32; 2]) -> f32,
+    bevel: f32,
+    thickness: f32,
+    eps: f32,
+) -> Vec3 {
+    let hx = glass_height(sdf([p[0] + eps, p[1]]), bevel)
+        - glass_height(sdf([p[0] - eps, p[1]]), bevel);
+    let hy = glass_height(sdf([p[0], p[1] + eps]), bevel)
+        - glass_height(sdf([p[0], p[1] - eps]), bevel);
+
+    let k = thickness / (2.0 * eps);
+    let x = -hx * k;
+    let y = -hy * k;
+    let len = (x * x + y * y + 1.0).sqrt();
+    [x / len, y / len, 1.0 / len]
 }
 
 /// 由高度场的有限差分构造表面法线。
@@ -35,16 +64,7 @@ pub fn glass_normal(
     thickness: f32,
     eps: f32,
 ) -> Vec3 {
-    let hx = glass_height(sd_rounded_box([p[0] + eps, p[1]], half_size, radius), bevel)
-        - glass_height(sd_rounded_box([p[0] - eps, p[1]], half_size, radius), bevel);
-    let hy = glass_height(sd_rounded_box([p[0], p[1] + eps], half_size, radius), bevel)
-        - glass_height(sd_rounded_box([p[0], p[1] - eps], half_size, radius), bevel);
-
-    let k = thickness / (2.0 * eps);
-    let x = -hx * k;
-    let y = -hy * k;
-    let len = (x * x + y * y + 1.0).sqrt();
-    [x / len, y / len, 1.0 / len]
+    glass_normal_sdf(p, |q| sd_rounded_box(q, half_size, radius), bevel, thickness, eps)
 }
 
 #[cfg(test)]
@@ -158,6 +178,73 @@ mod tests {
             assert!(n[0].abs() < 1e-6);
             assert!(n[1].abs() < 1e-6);
             assert!((n[2] - 1.0).abs() < 1e-6);
+        }
+    }
+
+    // Merge（并集融合）策略的 parity：镜像 glass.wgsl 的 union_sdf / union_normal。
+    mod merge_tests {
+        use super::*;
+
+        const BEVEL: f32 = 34.0;
+        const THICKNESS: f32 = 6.0;
+        const EPS: f32 = 1.0;
+
+        // 两块左右重叠的圆角盒：A 中心 (0,0)，B 中心 (260,0)，
+        // 半尺寸都是 (210,130)，圆角 40。重叠区 x ∈ [50, 210]。
+        fn union_d(p: [f32; 2]) -> f32 {
+            sdf_union(
+                sd_rounded_box(p, [210.0, 130.0], 40.0),
+                sd_rounded_box([p[0] - 260.0, p[1]], [210.0, 130.0], 40.0),
+            )
+        }
+
+        #[test]
+        fn union_contains_both_components() {
+            for p in [[0.0, 0.0], [260.0, 0.0], [130.0, 0.0]] {
+                let d = union_d(p);
+                assert!(d < 0.0, "p = {p:?}, d = {d}");
+            }
+        }
+
+        #[test]
+        fn overlap_interior_is_flat() {
+            // 重叠区中部：离两块面板的边缘都远于 bevel 宽度，
+            // 并集法线应接近 (0,0,1) —— 融合后内部没有内边缘。
+            let n = glass_normal_sdf([130.0, 0.0], union_d, BEVEL, THICKNESS, EPS);
+            assert!(n[0].abs() < 1e-6, "n = {n:?}");
+            assert!(n[1].abs() < 1e-6, "n = {n:?}");
+        }
+
+        #[test]
+        fn inner_edge_of_overlap_is_absorbed() {
+            // x = 60 在 B 的左缘（x = 50）内侧 10px —— 单面板法线在这里已经
+            // 明显外倾，但并集在 x 方向远深于 bevel（A 的边缘在 x = 210），
+            // 融合玻璃应当保持平坦：这正是 Merge 与逐层 Stack 的区别。
+            let n = glass_normal_sdf([60.0, 0.0], union_d, BEVEL, THICKNESS, EPS);
+            assert!(n[0].abs() < 1e-6, "n = {n:?}");
+        }
+
+        #[test]
+        fn outer_bevel_survives_at_union_boundary() {
+            // 并集外轮廓（B 的右缘 x = 470）的倒角环仍然存在且外倾。
+            let n = glass_normal_sdf([460.0, 0.0], union_d, BEVEL, THICKNESS, EPS);
+            assert!(n[0] > 0.15, "n = {n:?}");
+        }
+
+        #[test]
+        fn union_normal_always_unit_length() {
+            for p in [
+                [0.0, 0.0],
+                [60.0, 0.0],
+                [130.0, 0.0],
+                [130.0, 128.0],
+                [460.0, 0.0],
+                [465.0, 125.0],
+            ] {
+                let n = glass_normal_sdf(p, union_d, BEVEL, THICKNESS, EPS);
+                let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                assert!((len - 1.0).abs() < 1e-5, "p = {p:?}, len = {len}");
+            }
         }
     }
 }
