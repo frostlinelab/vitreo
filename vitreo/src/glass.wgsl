@@ -27,7 +27,8 @@ struct Globals {
 }
 
 // 面板 uniform（96 字节，与 Rust 侧 PanelUniform 逐字节一致；不用 vec3 占位，
-// 避免 uniform 地址空间的 16 字节对齐自动填充）。
+// 避免 uniform 地址空间的 16 字节对齐自动填充。velocity 按两个标量声明，
+// 与 Rust 侧 [f32;2] 逐字节一致且不破坏 tint/shadow 的 16 对齐）。
 struct PanelData {
     center: vec2f,
     half_size: vec2f,
@@ -40,9 +41,9 @@ struct PanelData {
     blur: f32,
     specular: f32,
     fresnel_f0: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    velocity_x: f32,  // 果冻形变：运动速度 x（像素/秒）
+    velocity_y: f32,  // 果冻形变：运动速度 y
+    press: f32,       // 果冻形变：按压量 0..1
     tint: vec4f,      // rgb = 染色/辉光色，a = 染色不透明度
     shadow: vec4f,    // x = 不透明度, y = 模糊半径, zw = 偏移
 }
@@ -74,6 +75,67 @@ fn glass_normal(p: vec2f, half_size: vec2f, radius: f32, bevel: f32, thickness: 
            - glass_height(sd_rounded_box(p - ey, half_size, radius), bevel);
     let k = thickness / (2.0 * NORMAL_EPS);
     return normalize(vec3f(-hx * k, -hy * k, 1.0));
+}
+
+// ---------- 果冻形变（与 sdf2d.rs 的 JELLY_* / jelly_* 逐行对应） ----------
+//
+// 艺术性扩展（squash & stretch 动画原理）：运动中的面板沿速度方向伸长、
+// 垂直方向收缩，按压时整体微缩，bevel 法线滞后于运动。
+
+const JELLY_STRETCH_GAIN: f32 = 4e-4;  // e = |velocity| * GAIN
+const JELLY_STRETCH_MAX: f32 = 0.15;   // 拉伸量上限
+const JELLY_PRESS_SQUASH: f32 = 0.05;  // press = 1 时整体缩到 95%
+const JELLY_NORMAL_LAG: f32 = 0.9;     // 法线滞后倾斜增益
+
+// velocity_x/y 以标量存储（对齐考虑），组装成 vec2f 使用。
+fn panel_velocity(panel: PanelData) -> vec2f {
+    return vec2f(panel.velocity_x, panel.velocity_y);
+}
+
+// 把局部坐标 p 映射进未变形盒子的采样空间：先按压均匀微缩，
+// 再沿速度方向压缩采样坐标（旋转到速度系 → 各向异性缩放 → 旋转回来，
+// 盒子半尺寸是轴对齐的，不能省略最后的回转）。
+fn jelly_sample(p: vec2f, velocity: vec2f, press: f32) -> vec2f {
+    let k = 1.0 - JELLY_PRESS_SQUASH * press;
+    var q = p / k;
+    let speed = length(velocity);
+    if (speed > 1e-3) {
+        let dir = velocity / speed;
+        let e = min(speed * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX);
+        let along = dot(q, dir);
+        let perp = dot(q, vec2f(-dir.y, dir.x));
+        let a = along / (1.0 + e);
+        let b = perp / (1.0 - 0.5 * e);
+        q = vec2f(dir.x * a - dir.y * b, dir.y * a + dir.x * b);
+    }
+    return q;
+}
+
+// 变形 SDF 的距离修正系数：按压缩放 × 拉伸的垂直收缩量。
+// 零点（轮廓位置）不受影响，只修正梯度量级以保持 AA 带宽近似不变。
+fn jelly_scale(velocity: vec2f, press: f32) -> f32 {
+    let k = 1.0 - JELLY_PRESS_SQUASH * press;
+    let e = min(length(velocity) * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX);
+    return k * (1.0 - 0.5 * e);
+}
+
+// 变形后的圆角盒 SDF：sd_rounded_box 的果冻版本。
+fn jelly_sdf(p: vec2f, half_size: vec2f, radius: f32, velocity: vec2f, press: f32) -> f32 {
+    return sd_rounded_box(jelly_sample(p, velocity, press), half_size, radius)
+         * jelly_scale(velocity, press);
+}
+
+// 法线滞后倾斜：在 bevel 法线上叠加与速度反向的倾斜（玻璃"跟不上"运动）。
+// d 是该像素的变形后 SDF，用于边缘权重——只倾斜 bevel 带，内部平台保持平坦。
+fn jelly_lag(n: vec3f, velocity: vec2f, d: f32, bevel: f32) -> vec3f {
+    let speed = length(velocity);
+    if (speed < 1e-3) {
+        return n;
+    }
+    let dir = velocity / speed;
+    let e = min(speed * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX);
+    let w = (1.0 - glass_height(d, bevel)) * JELLY_NORMAL_LAG;
+    return normalize(vec3f(n.xy - dir * (e * w), n.z));
 }
 
 // ---------- 光学（与 optics.rs 对应） ----------
@@ -157,20 +219,24 @@ fn shade_glass_pixel(pixel: vec2f, n: vec3f, panel: PanelData) -> vec3f {
     return mix(col, panel.tint.rgb, panel.tint.a);
 }
 
-fn shade_glass(pixel: vec2f, panel: PanelData) -> vec3f {
-    let p = pixel - panel.center;
-    let n = glass_normal(p, panel.half_size, panel.corner_radius, panel.bevel, panel.thickness);
+fn shade_glass(pixel: vec2f, panel: PanelData, d: f32) -> vec3f {
+    // 法线在变形采样空间求值，再叠加滞后倾斜；d 是该像素的变形后 SDF。
+    let p = jelly_sample(pixel - panel.center, panel_velocity(panel), panel.press);
+    var n = glass_normal(p, panel.half_size, panel.corner_radius, panel.bevel, panel.thickness);
+    n = jelly_lag(n, panel_velocity(panel), d, panel.bevel);
     return shade_glass_pixel(pixel, n, panel);
 }
 
 // ---------- 多面板：Merge（并集融合，与 sdf2d.rs 的并集法线对应） ----------
 
 // 所有面板的并集 SDF：内部为负。重叠区的融合几何全部来自它。
+// 每个面板贡献自己的果冻变形 SDF。
 fn union_sdf(pixel: vec2f, count: u32) -> f32 {
     var d = 1e30;
     for (var i = 0u; i < count; i = i + 1u) {
         let panel = panels[i];
-        d = min(d, sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius));
+        d = min(d, jelly_sdf(pixel - panel.center, panel.half_size, panel.corner_radius,
+                             panel_velocity(panel), panel.press));
     }
     return d;
 }
@@ -193,7 +259,8 @@ fn union_normal(pixel: vec2f, count: u32, bevel: f32, thickness: f32) -> vec3f {
 fn merge_material(pixel: vec2f, count: u32) -> PanelData {
     for (var i = count; i > 0u; i = i - 1u) {
         let panel = panels[i - 1u];
-        let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+        let d = jelly_sdf(pixel - panel.center, panel.half_size, panel.corner_radius,
+                          panel_velocity(panel), panel.press);
         if (d < 0.0) {
             return panel;
         }
@@ -202,7 +269,8 @@ fn merge_material(pixel: vec2f, count: u32) -> PanelData {
     var nearest = 1e30;
     for (var i = 0u; i < count; i = i + 1u) {
         let panel = panels[i];
-        let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+        let d = jelly_sdf(pixel - panel.center, panel.half_size, panel.corner_radius,
+                          panel_velocity(panel), panel.press);
         if (d < nearest) {
             nearest = d;
             mat = panel;
@@ -213,11 +281,14 @@ fn merge_material(pixel: vec2f, count: u32) -> PanelData {
 
 fn shade_merged(pixel: vec2f, count: u32) -> vec3f {
     let mat = merge_material(pixel, count);
-    let n = union_normal(pixel, count, mat.bevel, mat.thickness);
+    let d = union_sdf(pixel, count);
+    var n = union_normal(pixel, count, mat.bevel, mat.thickness);
+    // 滞后倾斜取最上层面板的速度；并集轮廓已是变形后的形状。
+    n = jelly_lag(n, panel_velocity(mat), d, mat.bevel);
     return shade_glass_pixel(pixel, n, mat);
 }
 
-// 并集外的软阴影：各面板按自己的 shadow 参数在自身 SDF 上贡献，
+// 并集外的软阴影：各面板按自己的 shadow 参数在自身（变形后）SDF 上贡献，
 // 玻璃覆盖处（并集内）不投阴影。
 fn merged_shadow(pixel: vec2f, count: u32, color: vec3f) -> vec3f {
     var c = color;
@@ -227,7 +298,8 @@ fn merged_shadow(pixel: vec2f, count: u32, color: vec3f) -> vec3f {
             continue;
         }
         let sp = pixel - panel.center - panel.shadow.zw;
-        let sd = sd_rounded_box(sp, panel.half_size, panel.corner_radius);
+        let sd = jelly_sdf(sp, panel.half_size, panel.corner_radius,
+                           panel_velocity(panel), panel.press);
         let blur = max(panel.shadow.y, 1.0);
         let a = smoothstep(-blur, blur * 0.5, -sd) * panel.shadow.x;
         c = mix(c, vec3f(0.0), a);
@@ -274,16 +346,18 @@ fn fs_main(input: VertexOut) -> @location(0) vec4f {
         // Stack：按数组顺序逐层覆盖，下标越靠后越靠上层。
         for (var i = 0u; i < count; i = i + 1u) {
             let panel = panels[i];
-            let d = sd_rounded_box(pixel - panel.center, panel.half_size, panel.corner_radius);
+            let d = jelly_sdf(pixel - panel.center, panel.half_size, panel.corner_radius,
+                              panel_velocity(panel), panel.press);
             let coverage = 1.0 - smoothstep(-1.0, 1.0, d); // 1px 抗锯齿边缘
 
             if (coverage > 0.0) {
-                let shaded = shade_glass(pixel, panel);
+                let shaded = shade_glass(pixel, panel, d);
                 color = mix(color, shaded, coverage);
             } else if (panel.shadow.x > 0.0) {
-                // 面板外：SDF 软阴影。
+                // 面板外：SDF 软阴影（随果冻形变一起变形）。
                 let sp = pixel - panel.center - panel.shadow.zw;
-                let sd = sd_rounded_box(sp, panel.half_size, panel.corner_radius);
+                let sd = jelly_sdf(sp, panel.half_size, panel.corner_radius,
+                                   panel_velocity(panel), panel.press);
                 let blur = max(panel.shadow.y, 1.0);
                 let a = smoothstep(-blur, blur * 0.5, -sd) * panel.shadow.x;
                 color = mix(color, vec3f(0.0), a);

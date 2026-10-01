@@ -50,6 +50,8 @@ impl PanelState {
             center: self.center,
             size: self.size,
             corner_radius: self.corner_radius,
+            velocity: [0.0; 2],
+            press: 0.0,
             style: self.style,
         }
     }

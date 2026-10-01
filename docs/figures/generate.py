@@ -115,6 +115,54 @@ def glass_normal(px, py, half_size, radius, bevel, thickness, eps=1.0):
     return x / length, y / length, 1.0 / length
 
 
+# ---------- 与 sdf2d.rs 逐行对应的果冻形变数学 ----------
+JELLY_STRETCH_GAIN = 4e-4  # e = |velocity| * GAIN
+JELLY_STRETCH_MAX = 0.15  # 拉伸量上限
+JELLY_PRESS_SQUASH = 0.05  # press = 1 时整体缩到 95%
+JELLY_NORMAL_LAG = 0.9  # 法线滞后倾斜增益
+
+
+def jelly_sample(px, py, vx, vy, press):
+    """局部坐标 → 未变形盒子采样空间（sdf2d.rs::jelly_sample）。"""
+    k = 1.0 - JELLY_PRESS_SQUASH * press
+    qx, qy = px / k, py / k
+    speed = math.hypot(vx, vy)
+    if speed > 1e-3:
+        dx, dy = vx / speed, vy / speed
+        e = min(speed * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX)
+        along = qx * dx + qy * dy
+        perp = -qx * dy + qy * dx
+        a, b = along / (1.0 + e), perp / (1.0 - 0.5 * e)
+        qx, qy = dx * a - dy * b, dy * a + dx * b
+    return qx, qy
+
+
+def jelly_scale(vx, vy, press):
+    """变形 SDF 的距离修正系数（sdf2d.rs::jelly_scale）。"""
+    k = 1.0 - JELLY_PRESS_SQUASH * press
+    e = min(math.hypot(vx, vy) * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX)
+    return k * (1.0 - 0.5 * e)
+
+
+def jelly_sdf(px, py, bx, by, r, vx, vy, press):
+    """变形后的圆角盒 SDF（sdf2d.rs::jelly_sdf）。"""
+    qx, qy = jelly_sample(px, py, vx, vy, press)
+    return sd_rounded_box(qx, qy, bx, by, r) * jelly_scale(vx, vy, press)
+
+
+def jelly_lag(nx, ny, nz, vx, vy, d, bevel):
+    """法线滞后倾斜（sdf2d.rs::jelly_lag）。d 为该像素的变形后 SDF。"""
+    speed = math.hypot(vx, vy)
+    if speed < 1e-3:
+        return nx, ny, nz
+    dx, dy = vx / speed, vy / speed
+    e = min(speed * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX)
+    w = (1.0 - glass_height(d, bevel)) * JELLY_NORMAL_LAG
+    x, y = nx - dx * e * w, ny - dy * e * w
+    length = np.sqrt(x * x + y * y + nz * nz)
+    return x / length, y / length, nz / length
+
+
 # ---------- 与 optics.rs 逐行对应的光学数学 ----------
 def refract(i, n, eta):
     ni = i[0] * n[0] + i[1] * n[1] + i[2] * n[2]
@@ -578,6 +626,87 @@ def fig_merge():
     save(fig, "merge")
 
 
+# ======================================================================
+# Fig. 6 — 果冻形变：速度拉伸轮廓 + 法线滞后场
+# ======================================================================
+def fig_jelly():
+    # 与 fig_bevel 相同的面板几何：半尺寸 (210,130)，r = 64。
+    half = (210.0, 130.0)
+    radius = 64.0
+    vx_case, vy_case = 300.0, 0.0  # 案例速度：300 px/s 向右（e = 0.12）
+
+    xs = np.arange(-half[0] - 60, half[0] + 61, 1.0)
+    ys = np.arange(-half[1] - 60, half[1] + 61, 1.0)
+    px, py = np.meshgrid(xs, ys)
+
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(12.6, 5.2))
+
+    # (a) 轮廓：静止 / 两种速度的拉伸 / 按压微缩
+    def contour(ax, vx, vy, press, color, ls, lw, label):
+        d = jelly_sdf(px, py, *half, radius, vx, vy, press)
+        ax.contour(px, py, d, levels=[0.0], colors=color, linewidths=lw, linestyles=ls)
+        ax.plot([], [], color=color, ls=ls, lw=lw, label=label)
+
+    contour(ax_a, 0.0, 0.0, 0.0, "0.35", "--", 1.6, "at rest 静止")
+    contour(ax_a, 150.0, 0.0, 0.0, C_BLUE, "-", 2.0, "v = 150 px/s (e = 0.06)")
+    contour(ax_a, vx_case, vy_case, 0.0, C_RED, "-", 2.4, "v = 300 px/s (e = 0.12, capped 已钳制)")
+    contour(ax_a, 0.0, 0.0, 1.0, "#8a7d0e", ":", 2.2, "press = 1 (× 0.95) 按压微缩")
+    ax_a.add_patch(
+        FancyArrowPatch((-70, 0), (70, 0), arrowstyle="-|>", mutation_scale=20,
+                        color=C_RED, lw=2.6, zorder=5)
+    )
+    ax_a.text(0, 26, "motion 运动方向", ha="center", fontsize=9, color=C_RED)
+    ax_a.annotate("leading edge 前缘 +25 px",
+                  (half[0] * 1.12, -100), xytext=(150, -152), fontsize=9, color=C_RED,
+                  arrowprops=dict(arrowstyle="->", color=C_RED, lw=1.0))
+    ax_a.legend(loc="upper left", fontsize=8.5, framealpha=0.95)
+    ax_a.set_xlabel("x (px)")
+    ax_a.set_ylabel("y (px, screen down 屏幕向下)")
+    ax_a.set_title("(a) squash & stretch: silhouette driven by velocity\n"
+                   "果冻拉伸：轮廓沿速度伸长、垂直收缩 0.5e", fontsize=10)
+    ax_a.set_aspect("equal")
+    ax_a.grid(alpha=0.25)
+
+    # (b) bevel 带法线：静止（灰）vs 滞后倾斜（红）。法线求值完全复刻 shader：
+    # 在 jelly_sample 的采样空间求 bevel 法线，再按变形后 SDF 的边缘权重倾斜。
+    step = 14
+    qx, qy = jelly_sample(px[::step, ::step], py[::step, ::step], vx_case, vy_case, 0.0)
+    nbx, nby, nbz = glass_normal(qx, qy, half, radius, STYLE_BEVEL, STYLE_THICKNESS)
+    d_j = jelly_sdf(px[::step, ::step], py[::step, ::step], *half, radius, vx_case, vy_case, 0.0)
+    lagx, lagy, _ = jelly_lag(nbx, nby, nbz, vx_case, vy_case, d_j, STYLE_BEVEL)
+    band = (d_j < 1.0) & (d_j > -STYLE_BEVEL - 1.0)  # bevel 带 + AA 边缘
+    bx, by = px[::step, ::step][band], py[::step, ::step][band]
+
+    restx, resty, _ = glass_normal(bx, by, half, radius, STYLE_BEVEL, STYLE_THICKNESS)
+    ax_b.contour(px, py, jelly_sdf(px, py, *half, radius, vx_case, vy_case, 0.0),
+                 levels=[0.0], colors="0.55", linewidths=1.4)
+    ax_b.contour(px, py, sd_rounded_box(px, py, *half, radius), levels=[0.0],
+                 colors="0.35", linewidths=1.2, linestyles="--")
+    ax_b.quiver(bx, by, restx, resty, color="0.55", width=0.0035, alpha=0.9)
+    ax_b.quiver(bx, by, lagx[band], lagy[band], color=C_RED, width=0.0035)
+    ax_b.add_patch(
+        FancyArrowPatch((-70, 0), (70, 0), arrowstyle="-|>", mutation_scale=20,
+                        color=C_RED, lw=2.6, zorder=5)
+    )
+    ax_b.text(0, 26, "motion 运动方向", ha="center", fontsize=9, color=C_RED)
+    ax_b.annotate("lagged normals lean against motion\n滞后法线逆着运动方向倾斜",
+                  (250, -120), xytext=(180, -185), fontsize=9, color=C_RED,
+                  arrowprops=dict(arrowstyle="->", color=C_RED, lw=1.0))
+    ax_b.legend(handles=[
+        Line2D([], [], color="0.55", lw=2.2, label="at rest 静止法线"),
+        Line2D([], [], color=C_RED, lw=2.2, label="lagging 滞后法线 (v = 300 px/s)"),
+    ], loc="upper left", fontsize=8.5, framealpha=0.95)
+    ax_b.set_xlabel("x (px)")
+    ax_b.set_ylabel("y (px, screen down 屏幕向下)")
+    ax_b.set_title("(b) normal lag tilt, weighted by bevel-band falloff\n"
+                   "法线滞后：只在 bevel 带内倾斜，内部平台保持平坦", fontsize=10)
+    ax_b.set_aspect("equal")
+    ax_b.grid(alpha=0.25)
+
+    fig.tight_layout()
+    save(fig, "jelly")
+
+
 def main():
     setup_fonts()
     print("generating figures:")
@@ -586,6 +715,7 @@ def main():
     fig_dispersion()
     fig_bevel()
     fig_merge()
+    fig_jelly()
 
     # ---- 供文档引用的数值（打印出来核对） ----
     print("\nworked examples for the doc:")
@@ -629,6 +759,14 @@ def main():
     print(f"    x =  60 (10px inside B's left edge, deep in A): {merge_probe_nx(60.0):+.4f}  (seam absorbed 接缝被吸收)")
     print(f"    x = 130 (overlap interior 重叠区内部):          {merge_probe_nx(130.0):+.4f}")
     print(f"    x = 460 (fused outer bevel 融合外轮廓 bevel):   {merge_probe_nx(460.0):+.4f}")
+
+    # jelly 算例（与 sdf2d.rs::jelly_tests 同公式）
+    for v in (150.0, 300.0):
+        e = min(v * JELLY_STRETCH_GAIN, JELLY_STRETCH_MAX)
+        print(f"  jelly: v = {v:.0f} px/s -> e = {e:.2f}, "
+              f"leading edge 前缘 = {210.0 * (1.0 + e):.1f} px (rest 静止 210), "
+              f"perpendicular edge 垂直边 = {130.0 * (1.0 - 0.5 * e):.1f} px (rest 静止 130)")
+    print(f"  jelly: press = 1 -> uniform scale 均匀缩放 = {1.0 - JELLY_PRESS_SQUASH:.2f}")
 
 
 if __name__ == "__main__":

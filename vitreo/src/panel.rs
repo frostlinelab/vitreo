@@ -15,11 +15,28 @@ pub struct GlassPanel {
     pub size: [f32; 2],
     /// 圆角半径（像素）。
     pub corner_radius: f32,
+    /// 运动速度（像素/秒）——果冻形变的驱动量：轮廓沿速度方向拉伸、
+    /// bevel 法线滞后倾斜。静态用法保持零值。
+    pub velocity: [f32; 2],
+    /// 按压量 0..1——按住拖拽时玻璃整体微缩（见 `sdf2d::JELLY_PRESS_SQUASH`）。
+    pub press: f32,
     /// 材质参数。
     pub style: GlassStyle,
 }
 
 impl GlassPanel {
+    /// 静态面板的便捷构造：零速度、零按压、默认材质。
+    pub fn new(center: [f32; 2], size: [f32; 2], corner_radius: f32) -> Self {
+        Self {
+            center,
+            size,
+            corner_radius,
+            velocity: [0.0; 2],
+            press: 0.0,
+            style: GlassStyle::default(),
+        }
+    }
+
     /// 半尺寸。
     pub fn half_size(&self) -> [f32; 2] {
         [self.size[0] * 0.5, self.size[1] * 0.5]
@@ -45,7 +62,8 @@ impl GlassPanel {
             blur: style.blur,
             specular: style.specular,
             fresnel_f0: schlick_f0(IOR_AIR, style.ior),
-            _pad: [0.0; 3],
+            velocity: self.velocity,
+            press: self.press,
             tint: [
                 style.tint[0],
                 style.tint[1],
@@ -66,6 +84,8 @@ impl GlassPanel {
 ///
 /// 布局约定：只有标量与 `[f32; 4]`，`[f32; 4]` 落在 16 字节对齐的偏移上，
 /// 结构体总大小 96 字节（uniform 数组步长须为 16 的倍数）。
+/// `velocity` + `press` 恰好占用原 `_pad` 的 12 字节（52..64）；
+/// WGSL 侧把 velocity 拆成两个标量声明以维持 vec4 字段的 16 对齐。
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PanelUniform {
@@ -80,7 +100,8 @@ pub(crate) struct PanelUniform {
     pub blur: f32,
     pub specular: f32,
     pub fresnel_f0: f32,
-    pub _pad: [f32; 3],
+    pub velocity: [f32; 2],
+    pub press: f32,
     pub tint: [f32; 4],
     pub shadow: [f32; 4],
 }
@@ -98,21 +119,30 @@ mod tests {
     fn uniform_layout_is_96_bytes() {
         assert_eq!(std::mem::size_of::<PanelUniform>(), 96);
         assert_eq!(std::mem::size_of::<PanelUniform>() % 16, 0);
+        // 关键偏移：velocity/press 占用原 _pad（52..64），vec4 字段保持 16 对齐。
+        assert_eq!(std::mem::offset_of!(PanelUniform, fresnel_f0), 48);
+        assert_eq!(std::mem::offset_of!(PanelUniform, velocity), 52);
+        assert_eq!(std::mem::offset_of!(PanelUniform, press), 60);
+        assert_eq!(std::mem::offset_of!(PanelUniform, tint), 64);
+        assert_eq!(std::mem::offset_of!(PanelUniform, shadow), 80);
     }
 
     #[test]
     fn contains_respects_corner_radius() {
-        let panel = GlassPanel {
-            center: [100.0, 100.0],
-            size: [80.0, 40.0],
-            corner_radius: 20.0,
-            style: GlassStyle::default(),
-        };
+        let panel = GlassPanel::new([100.0, 100.0], [80.0, 40.0], 20.0);
         // 中心命中
         assert!(panel.contains([100.0, 100.0]));
         // 圆角外的角落不命中（SDF 把角内收了）
         assert!(!panel.contains([132.0, 116.0]));
         // 远处不命中
         assert!(!panel.contains([200.0, 200.0]));
+    }
+
+    #[test]
+    fn new_starts_at_rest() {
+        let panel = GlassPanel::new([10.0, 20.0], [30.0, 40.0], 8.0);
+        assert_eq!(panel.velocity, [0.0, 0.0]);
+        assert_eq!(panel.press, 0.0);
+        assert_eq!(panel.style, GlassStyle::default());
     }
 }

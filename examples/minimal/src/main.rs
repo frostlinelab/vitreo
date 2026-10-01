@@ -660,6 +660,8 @@ impl PanelState {
             center: self.center,
             size: self.size,
             corner_radius: self.corner_radius,
+            velocity: [0.0; 2],
+            press: 0.0,
             style: self.style,
         }
     }
@@ -1141,6 +1143,8 @@ fn run_screenshot(args: &Args, path: &str) {
                 .unwrap_or([w as f32 * 0.5, h as f32 * 0.55]),
             size: [460.0, 240.0],
             corner_radius: 72.0,
+            velocity: [0.0; 2],
+            press: 0.0,
             style: demo_style(args, 1.0),
         };
 

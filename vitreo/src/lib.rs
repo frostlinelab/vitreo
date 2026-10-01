@@ -19,13 +19,9 @@
 //! let rgba = vec![0u8; 1600 * 1000 * 4];
 //! let backdrop = Backdrop::from_rgba(device, queue, 1600, 1000, &rgba);
 //!
-//! // 2. 玻璃面板 = 几何 + 材质。
-//! let panel = GlassPanel {
-//!     center: [800.0, 500.0],
-//!     size: [460.0, 240.0],
-//!     corner_radius: 64.0,
-//!     style: GlassStyle::default(),
-//! };
+//! // 2. 玻璃面板 = 几何 + 材质（静态面板可用 `GlassPanel::new` 便捷构造）。
+//! let mut panel = GlassPanel::new([800.0, 500.0], [460.0, 240.0], 64.0);
+//! panel.style = GlassStyle::default();
 //!
 //! // 3. 合成器把背景 + 面板一次性画到目标纹理上。
 //! let compositor = Compositor::new(device, wgpu::TextureFormat::Bgra8UnormSrgb);

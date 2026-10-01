@@ -8,9 +8,9 @@
 
 ## 摘要
 
-Vitreo 用单次 wgpu 片元着色，把矩形玻璃面板叠加在任意二维背景之上。本文推导着色器求值的每一条公式——圆角盒有符号距离场、bevel 高度剖面及其表面法线、化为屏幕空间位移的 Snell 折射、由阿贝数驱动的色散、以及 Fresnel 反射率的 Schlick 近似——并对每个物理常数给出文献依据。文中所有图像曲线均由 `docs/figures/generate.py` 逐公式复刻 Rust/WGSL 源码计算得到，没有任何手绘示意。文末给出物理量到公开 `GlassStyle` 参数的映射，以及数值算例。
+Vitreo 用单次 wgpu 片元着色，把矩形玻璃面板叠加在任意二维背景之上。本文推导着色器求值的每一条公式——圆角盒有符号距离场、bevel 高度剖面及其表面法线、化为屏幕空间位移的 Snell 折射、由阿贝数驱动的色散、以及 Fresnel 反射率的 Schlick 近似——并对每个物理常数给出文献依据。文中所有图像曲线均由 `docs/figures/generate.py` 逐公式复刻 Rust/WGSL 源码计算得到，没有任何手绘示意。唯一一处**艺术性**扩展——手绘动画传统中"挤压与拉伸"式的速度驱动果冻形变——也收录在文中并明确标注其性质（§7）。文末给出物理量到公开 `GlassStyle` 参数的映射，以及数值算例。
 
-**关键词：** 折射，Snell 定律，有符号距离场，色散，阿贝数，Fresnel 方程，Schlick 近似，WGSL，wgpu
+**关键词：** 折射，Snell 定律，有符号距离场，色散，阿贝数，Fresnel 方程，Schlick 近似，挤压与拉伸，WGSL，wgpu
 
 ---
 
@@ -38,7 +38,7 @@ sdRoundedBox SDF → bevel 高度场 → 表面法线
   → Schlick–Fresnel 边缘辉光 + 镜面高光
 ```
 
-同一套数学在 CPU 侧存在两份——`vitreo/src/sdf2d.rs` 与 `vitreo/src/optics.rs`——作为对拍基准（parity oracle）：38 个单元测试钉死了数值行为，而 Rust 与 WGSL 一旦漂移，所有面板的形状都会悄悄改变。
+同一套数学在 CPU 侧存在两份——`vitreo/src/sdf2d.rs` 与 `vitreo/src/optics.rs`——作为对拍基准（parity oracle）：49 个单元测试钉死了数值行为，而 Rust 与 WGSL 一旦漂移，所有面板的形状都会悄悄改变。
 
 ### 1.3 记号约定
 
@@ -53,6 +53,9 @@ sdRoundedBox SDF → bevel 高度场 → 表面法线
 | $D$ | 光程（depth，像素） | §3.4 |
 | $V_d$ | 阿贝数 | §4 |
 | $F$ | Fresnel 反射率 | §5 |
+| $\mathbf{v}$ | 面板运动速度（像素/秒），果冻形变的驱动量 | §7 |
+| $e$ | 沿 $\mathbf{v}$ 的拉伸量 | §7 |
+| $p$ | 按压量，$0..1$ | §7 |
 
 坐标均为物理像素，原点在视口左上角、$y$ 向下——与 wgpu 帧缓冲、winit 光标一致。
 
@@ -325,7 +328,54 @@ $\min$ 总是选取"更深入玻璃内部"的那个表面，所以落在另一�
 
 ---
 
-## 7. 从物理到 API：`GlassStyle`
+## 7. 运动：果冻形变——一处诚实标注的艺术性扩展
+
+到此为止的一切都是光学。这一节不是。SDF 从不改变的面板是**刚性**的：在屏幕上拖动时，它像一张玻璃的*照片*在滑动，而不是一具玻璃的*实体*。各平台的玻璃 API 用运动回应这一点——轮廓拉伸、折射晃动、被抓取时压缩。Vitreo 实现了一个刻意保持克制的版本，并如实标注它的性质：一条动画原理，不是物理推导。
+
+> **诚实声明。** "挤压与拉伸"（squash and stretch）是手绘动画与早期三维动画的经典原则之一（Lasseter 1987 将其成文，而实践本身早于他数十年）。真实的玻璃在光学上并不这样形变——刚性玻璃在 UI 时标下根本不形变。下面是一个*手感*模型：它被采用是因为眼睛把它读作"柔软、跟手的玻璃"，并且它被刻意排除在上面的物理章节之外。
+
+每块面板在几何之外携带两个运动输入——速度 `velocity` $\mathbf{v} \in \mathbb{R}^2$（像素/秒）与按压量 `press` $p \in [0, 1]$——塞进 96 字节 uniform 中原先保留的填充位里，布局不变。两者都由动画层（P3 的 `vitreo-egui` crate 中的弹簧积分器）提供，着色器只消费。
+
+**拉伸量。** 运动使轮廓沿 $\mathbf{v}$ 方向伸长
+
+$$
+e \;=\; \min\!\bigl(\lVert\mathbf{v}\rVert \, k_{\text{gain}},\; e_{\max}\bigr),
+\qquad k_{\text{gain}} = 4 \times 10^{-4}\ \text{s/px},\quad e_{\max} = 0.15,
+\tag{7.1}
+$$
+
+因此 300 px/s——一次利落的拖拽——在 $e = 0.12$ 处饱和，任何速度都不会拉伸超过 15 %。
+
+**变形轮廓。** 拉伸后的圆角盒没有闭式 SDF，于是着色器在*压缩后的采样空间*里求值未拉伸的盒子：记 $\hat{\mathbf{v}}$ 为单位速度向量、$\hat{\mathbf{v}}_\perp$ 为其垂直向量，像素的局部坐标 $\mathbf{p} = \text{pixel} - \text{center}$ 映射为
+
+$$
+\mathbf{q} \;=\; R\,\operatorname{diag}\!\Bigl(\tfrac{1}{1+e},\ \tfrac{1}{1-\tfrac{1}{2}e}\Bigr)\,R^{\!\top}\mathbf{p},
+\qquad d \;=\; s \cdot d_{\text{box}}(\mathbf{q}),
+\qquad s \;=\; (1 - k_{\text{press}} p)\,\Bigl(1 - \tfrac{1}{2} e\Bigr),
+\tag{7.2}
+$$
+
+其中 $R = [\hat{\mathbf{v}}\ \hat{\mathbf{v}}_\perp]$，$k_{\text{press}} = 0.05$（抓取把玻璃均匀压到 95 %；均匀缩放对 SDF 而言是*精确*的）。沿速度方向的 $1/(1+e)$ 压缩恰好是拉伸盒子的逆变换，所以**轮廓零点保持精确**——前缘确实落在 $(1+e)\,b_x$ 处——而缩放因子 $s$（两个轴向缩放中较小者）只重标距离的量级，让 1 px 抗锯齿带保持诚实。这是各向异性缩放 SDF 的标准采样空间近似；内部距离至多漂移约 $e/2$ 像素，在 $e \le 0.15$ 下不可见。
+
+**法线滞后。** 当 bevel 法线*逆着*运动倾斜时，折射读作"玻璃跟不上手势"：
+
+$$
+\mathbf{n}' \;=\; \operatorname{normalize}\!\Bigl(\mathbf{n}_{xy} - \hat{\mathbf{v}}\,\bigl(e\, k_{\text{lag}}\,(1 - h(d, w))\bigr),\ n_z\Bigr),
+\qquad k_{\text{lag}} = 0.9.
+\tag{7.3}
+$$
+
+来自式 2.2 的权重 $(1 - h)$ 把倾斜限制在 bevel 带内——台地保持平坦，所以运动中面板*内部*的视野与静止时一样不发生畸变。着色刻意保持微妙：$e = 0.12$ 时边缘上最大的倾角变化约 0.11 rad。
+
+实现位于 `sdf2d.rs::jelly_sample / jelly_scale / jelly_sdf / jelly_lag`（常数同上），并在 `glass.wgsl` 中逐行镜像；CPU 测试钉死了精确轮廓位置（半宽 100 px、200 px/s 时前缘在 108 px）、上限、按压收缩与滞后方向（倾斜分量随速度反向翻转符号，单位长度保持不变）。`generate.py` 为图 6 重新推导了全部公式。
+
+![果冻形变：速度拉伸的轮廓与滞后的法线场](figures/jelly.svg)
+
+*图 6 —— 向右运动的 420×260 面板（$r = 64$）。(a) 静止、150 px/s（$e = 0.06$，前缘 $+12.6$ px）、300 px/s（$e = 0.12$ 已钳制，$+25.2$ px）下的轮廓，以及均匀压缩的按压态（$p = 1$）。(b) bevel 带内的法线：静止（灰）对比滞后（红）——倾斜逆着运动方向，在台地上衰减为零。由 `docs/figures/generate.py` 用式 7.1–7.3 生成。*
+
+---
+
+## 8. 从物理到 API：`GlassStyle`
 
 | 参数 | 物理量 | 默认值 | § |
 |---|---|---|---|
@@ -339,20 +389,23 @@ $\min$ 总是选取"更深入玻璃内部"的那个表面，所以落在另一�
 | `tint` / `tint_opacity` | 染色与辉光色 | 白 / 0 | 6 |
 | `shadow.*` | SDF 软阴影 | 关 | 6 |
 
-## 8. 验证
+§7 的运动输入——`velocity`、`press`——位于 `GlassPanel`（几何）而非 `GlassStyle`（材质）上：它们是逐实例的动画状态，不是材质常数。
 
-- **38 个 CPU 单元测试**（`sdf2d.rs`、`optics.rs`、`panel.rs`、`compositor.rs`）钉死：斜入射的 Snell 定律、超过临界角的零向量、随 $D$ 的线性增长、随 IOR 与 thickness 的单调增长、蓝比红弯折多、空气→冕牌玻璃的 $F_0 = 0.0426$、BK7 的 $\Delta n = 0.00805$、Fresnel 端点、uniform 布局不变量，以及 Merge 并集法线的对拍（被埋边缘处倾角为零，融合外 bevel 倾角 $+0.176$）。
+## 9. 验证
+
+- **49 个 CPU 单元测试**（`sdf2d.rs`、`optics.rs`、`panel.rs`、`compositor.rs`）钉死：斜入射的 Snell 定律、超过临界角的零向量、随 $D$ 的线性增长、随 IOR 与 thickness 的单调增长、蓝比红弯折多、空气→冕牌玻璃的 $F_0 = 0.0426$、BK7 的 $\Delta n = 0.00805$、Fresnel 端点、uniform 布局不变量（96 字节；`velocity`/`press` 位于偏移 52/60）、Merge 并集法线的对拍（被埋边缘处倾角为零，融合外 bevel 倾角 $+0.176$），以及 §7 的果冻形变（精确轮廓 $b_x(1+e)$ 与 $b_x(1-k_{\text{press}}p)$、$e_{\max}$ 上限、静止时恒等、滞后倾斜逆着运动、单位长度保持）。
 - **图像对拍。** 本文所有图像都由 Rust/WGSL 公式的逐行 NumPy 转写生成（`docs/figures/generate.py`）；光学数学任何改动后请重跑 `.venv/bin/python docs/figures/generate.py` 并比对。
-- **数值算例**（每次生成图像时重新计算）：50° → 30.26°（空气→玻璃）；$\theta_c = 41.14°$、$\theta_B = 56.66°$；$F_0 = 4.26\%$；$(0.6,0,0.8)$、$D=90$ 处的位移：16.06 / 21.81 / 37.27 像素（水 / 冕牌 / 钻石）；红蓝位移差 0.48 像素（BK7）vs 7.0 像素（默认 0.15）。
+- **数值算例**（每次生成图像时重新计算）：50° → 30.26°（空气→玻璃）；$\theta_c = 41.14°$、$\theta_B = 56.66°$；$F_0 = 4.26\%$；$(0.6,0,0.8)$、$D=90$ 处的位移：16.06 / 21.81 / 37.27 像素（水 / 冕牌 / 钻石）；红蓝位移差 0.48 像素（BK7）vs 7.0 像素（默认 0.15）；果冻形变 150/300 px/s：$e = 0.06/0.12$，前缘 222.6 / 235.2 像素（静止 210）。
 
-## 9. 参考文献与致谢
+## 10. 参考文献与致谢
 
 1. **m2-md, *liquid-glass-refraction-shader***（MIT）——光学/SDF 数学及 thickness/bevel/refraction/blur/specular uniform 划分的正源；`optics.rs` 与 `sdf2d.rs` 是其 `optics.ts` / `sdf2d.ts` 的移植（含测试）。 <https://github.com/m2-md/liquid-glass-refraction-shader>
 2. **jeantimex, *glass-effect-webgpu***（MIT）——WGSL 管线结构（uniform 布局、合成 pass 组织）。 <https://github.com/jeantimex/glass-effect-webgpu>
 3. I. Quilez, *2D distance functions*——圆角盒 SDF 精确公式。 <https://iquilezles.org/articles/distfunctions/>
 4. C. Schlick, "An Inexpensive BRDF Model for Physically-based Rendering", *Computer Graphics Forum* 13(3), 1994——式 (5.2)。
 5. *RefractiveIndex.INFO*——折射率表值。 <https://refractiveindex.info/>
-6. **heonny, *egui-glass***（live-backdrop 离屏管线，P2 参考）；**zaroutt, *Niri-glass*** 与 **OverShifted, *LiquidGlass***（合成器级 SDF 折射参考）。
+6. J. Lasseter, "Principles of traditional animation applied to 3D computer animation", *SIGGRAPH '87*——§7 背后的挤压与拉伸原则（动画启发式，仅作此用途引用）。
+7. **heonny, *egui-glass***（live-backdrop 离屏管线，P2 参考）；**zaroutt, *Niri-glass*** 与 **OverShifted, *LiquidGlass***（合成器级 SDF 折射参考）。
 
 以上项目均为 MIT 许可；Vitreo 亦为 MIT 许可（见 `LICENSE`）。本文档与全部图像为 Vitreo 项目原创工作。
 
