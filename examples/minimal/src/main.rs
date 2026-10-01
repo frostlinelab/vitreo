@@ -1,9 +1,8 @@
 //! minimal —— Vitreo 的 P1 验收 demo：
 //! 渐变背景 + 可拖玻璃面板，折射 + 色散 + Fresnel 全开。
 //!
-//! 窗口模式自带 egui 参数面板（Tab 或 H 键切换显示），可实时调节
-//! 形状 / 折射 / 色散 / 高光 / 模糊 / 着色 / 阴影，并支持预设、随机与截图。
-//! 背景可换成任意 PNG/JPG（按钮选择或直接拖图进窗口）。
+//! P3 起改用 `vitreo-egui`：弹簧驱动面板（拖拽带果冻回弹 + 按压微缩），
+//! egui/winit/wgpu 接线全部来自绑定 crate。Tab 或 H 键切换参数面板。
 //!
 //! 用法：
 //! ```text
@@ -19,6 +18,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle, ShadowStyle};
+use vitreo_egui::{egui, install_cjk_fonts, AnimatedPanel, EguiFrame, GlassLayer, SpringConfig};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -110,116 +110,6 @@ fn demo_style(args: &Args, scale: f32) -> GlassStyle {
     }
 }
 
-/// 参数预设：名称 -> (尺寸, 圆角, 材质)，尺寸类参数按 DPI 缩放。
-fn apply_preset(state: &mut WindowState, name: &str) {
-    let scale = state.window.scale_factor() as f32;
-    let panel = &mut state.panel;
-    let style = &mut panel.style;
-    match name {
-        "水晶" => {
-            panel.size = [440.0 * scale, 260.0 * scale];
-            panel.corner_radius = 56.0 * scale;
-            *style = GlassStyle {
-                ior: 1.62,
-                bevel: 30.0 * scale,
-                thickness: 12.0 * scale,
-                depth: 140.0 * scale,
-                dispersion: 0.22,
-                blur: 0.0,
-                specular: 1.25,
-                tint: [0.94, 0.98, 1.0],
-                tint_opacity: 0.08,
-                shadow: ShadowStyle {
-                    opacity: 0.35,
-                    blur: 30.0 * scale,
-                    offset: [0.0, 14.0 * scale],
-                },
-            };
-        }
-        "彩虹棱镜" => {
-            panel.size = [420.0 * scale, 240.0 * scale];
-            panel.corner_radius = 48.0 * scale;
-            *style = GlassStyle {
-                ior: 1.75,
-                bevel: 46.0 * scale,
-                thickness: 10.0 * scale,
-                depth: 170.0 * scale,
-                dispersion: 0.50,
-                blur: 0.0,
-                specular: 1.0,
-                tint: [1.0, 1.0, 1.0],
-                tint_opacity: 0.0,
-                shadow: ShadowStyle {
-                    opacity: 0.30,
-                    blur: 36.0 * scale,
-                    offset: [0.0, 16.0 * scale],
-                },
-            };
-        }
-        "磨砂" => {
-            panel.size = [500.0 * scale, 300.0 * scale];
-            panel.corner_radius = 64.0 * scale;
-            *style = GlassStyle {
-                ior: 1.45,
-                bevel: 36.0 * scale,
-                thickness: 8.0 * scale,
-                depth: 70.0 * scale,
-                dispersion: 0.05,
-                blur: 18.0 * scale,
-                specular: 0.55,
-                tint: [1.0, 1.0, 1.0],
-                tint_opacity: 0.14,
-                shadow: ShadowStyle {
-                    opacity: 0.20,
-                    blur: 48.0 * scale,
-                    offset: [0.0, 20.0 * scale],
-                },
-            };
-        }
-        "胶囊" => {
-            panel.size = [520.0 * scale, 180.0 * scale];
-            panel.corner_radius = 90.0 * scale;
-            *style = GlassStyle {
-                ior: 1.52,
-                bevel: 44.0 * scale,
-                thickness: 9.0 * scale,
-                depth: 120.0 * scale,
-                dispersion: 0.18,
-                blur: 1.0 * scale,
-                specular: 0.9,
-                tint: [1.0, 1.0, 1.0],
-                tint_opacity: 0.0,
-                shadow: ShadowStyle {
-                    opacity: 0.28,
-                    blur: 32.0 * scale,
-                    offset: [0.0, 18.0 * scale],
-                },
-            };
-        }
-        _ => {
-            // "默认"
-            panel.size = [460.0 * scale, 240.0 * scale];
-            panel.corner_radius = 72.0 * scale;
-            *style = GlassStyle {
-                ior: 1.52,
-                bevel: 40.0 * scale,
-                thickness: 8.0 * scale,
-                depth: 110.0 * scale,
-                dispersion: 0.15,
-                blur: 2.5 * scale,
-                specular: 0.85,
-                tint: [1.0, 1.0, 1.0],
-                tint_opacity: 0.0,
-                shadow: ShadowStyle {
-                    opacity: 0.30,
-                    blur: 36.0 * scale,
-                    offset: [0.0, 18.0 * scale],
-                },
-            };
-        }
-    }
-}
-
 /// xorshift64：面板"随机"按钮够用的伪随机。
 struct Rng(u64);
 
@@ -244,18 +134,157 @@ impl Rng {
     }
 }
 
-fn randomize_panel(state: &mut WindowState) {
-    let scale = state.window.scale_factor() as f32;
+/// build_ui 需要的可变借用集合 —— 从 WindowState 逐字段解构而来，
+/// 避免闭包捕获整个 state 与 `EguiFrame::run_ui` 的借用冲突。
+/// 换背景操作涉及 `&mut Backdrop`（整块替换），从 UI 推迟到 run_ui
+/// 结束后处理，这里只收集意图。
+struct Demo<'a> {
+    glass: &'a mut GlassLayer,
+    window: &'a Arc<Window>,
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    offscreen_compositor: &'a Compositor,
+    backdrop: &'a Backdrop,
+    size: [u32; 2],
+    fps: &'a mut f32,
+    backdrop_image: &'a Option<(std::path::PathBuf, image::RgbaImage)>,
+    backdrop_error: &'a mut Option<(String, f32)>,
+    last_screenshot: &'a mut Option<(String, f32)>,
+    pending_load: Option<std::path::PathBuf>,
+    clear_backdrop: bool,
+}
+
+impl Demo<'_> {
+    fn panel(&mut self) -> &mut AnimatedPanel {
+        self.glass.panel_mut(0).expect("minimal 只有一块面板")
+    }
+
+    fn scale(&self) -> f32 {
+        self.window.scale_factor() as f32
+    }
+}
+
+/// 参数预设：名称 -> (尺寸, 圆角, 材质)，尺寸类参数按 DPI 缩放。
+/// 尺寸与圆角走弹簧目标，材质直接替换。
+fn apply_preset(d: &mut Demo, name: &str) {
+    let scale = d.scale();
+    let panel = d.panel();
+    match name {
+        "水晶" => {
+            panel.set_target_size([440.0 * scale, 260.0 * scale]);
+            panel.set_target_corner_radius(56.0 * scale);
+            *panel.style_mut() = GlassStyle {
+                ior: 1.62,
+                bevel: 30.0 * scale,
+                thickness: 12.0 * scale,
+                depth: 140.0 * scale,
+                dispersion: 0.22,
+                blur: 0.0,
+                specular: 1.25,
+                tint: [0.94, 0.98, 1.0],
+                tint_opacity: 0.08,
+                shadow: ShadowStyle {
+                    opacity: 0.35,
+                    blur: 30.0 * scale,
+                    offset: [0.0, 14.0 * scale],
+                },
+            };
+        }
+        "彩虹棱镜" => {
+            panel.set_target_size([420.0 * scale, 240.0 * scale]);
+            panel.set_target_corner_radius(48.0 * scale);
+            *panel.style_mut() = GlassStyle {
+                ior: 1.75,
+                bevel: 46.0 * scale,
+                thickness: 10.0 * scale,
+                depth: 170.0 * scale,
+                dispersion: 0.50,
+                blur: 0.0,
+                specular: 1.0,
+                tint: [1.0, 1.0, 1.0],
+                tint_opacity: 0.0,
+                shadow: ShadowStyle {
+                    opacity: 0.30,
+                    blur: 36.0 * scale,
+                    offset: [0.0, 16.0 * scale],
+                },
+            };
+        }
+        "磨砂" => {
+            panel.set_target_size([500.0 * scale, 300.0 * scale]);
+            panel.set_target_corner_radius(64.0 * scale);
+            *panel.style_mut() = GlassStyle {
+                ior: 1.45,
+                bevel: 36.0 * scale,
+                thickness: 8.0 * scale,
+                depth: 70.0 * scale,
+                dispersion: 0.05,
+                blur: 18.0 * scale,
+                specular: 0.55,
+                tint: [1.0, 1.0, 1.0],
+                tint_opacity: 0.14,
+                shadow: ShadowStyle {
+                    opacity: 0.20,
+                    blur: 48.0 * scale,
+                    offset: [0.0, 20.0 * scale],
+                },
+            };
+        }
+        "胶囊" => {
+            panel.set_target_size([520.0 * scale, 180.0 * scale]);
+            panel.set_target_corner_radius(90.0 * scale);
+            *panel.style_mut() = GlassStyle {
+                ior: 1.52,
+                bevel: 44.0 * scale,
+                thickness: 9.0 * scale,
+                depth: 120.0 * scale,
+                dispersion: 0.18,
+                blur: 1.0 * scale,
+                specular: 0.9,
+                tint: [1.0, 1.0, 1.0],
+                tint_opacity: 0.0,
+                shadow: ShadowStyle {
+                    opacity: 0.28,
+                    blur: 32.0 * scale,
+                    offset: [0.0, 18.0 * scale],
+                },
+            };
+        }
+        _ => {
+            // "默认"
+            panel.set_target_size([460.0 * scale, 240.0 * scale]);
+            panel.set_target_corner_radius(72.0 * scale);
+            *panel.style_mut() = GlassStyle {
+                ior: 1.52,
+                bevel: 40.0 * scale,
+                thickness: 8.0 * scale,
+                depth: 110.0 * scale,
+                dispersion: 0.15,
+                blur: 2.5 * scale,
+                specular: 0.85,
+                tint: [1.0, 1.0, 1.0],
+                tint_opacity: 0.0,
+                shadow: ShadowStyle {
+                    opacity: 0.30,
+                    blur: 36.0 * scale,
+                    offset: [0.0, 18.0 * scale],
+                },
+            };
+        }
+    }
+}
+
+fn randomize_panel(d: &mut Demo) {
+    let scale = d.scale();
     let mut rng = Rng::new();
-    let panel = &mut state.panel;
-    let style = &mut panel.style;
-    panel.size = [
+    let panel = d.panel();
+    panel.set_target_size([
         rng.range(240.0, 640.0) * scale,
         rng.range(140.0, 380.0) * scale,
-    ];
-    let r_max = panel.size[0].min(panel.size[1]) * 0.5;
-    panel.corner_radius = rng.range(0.0, r_max);
-    *style = GlassStyle {
+    ]);
+    let r_max = panel.target_size()[0].min(panel.target_size()[1]) * 0.5;
+    panel.set_target_corner_radius(rng.range(0.0, r_max));
+    *panel.style_mut() = GlassStyle {
         ior: rng.range(1.35, 1.85),
         bevel: rng.range(20.0, 60.0) * scale,
         thickness: rng.range(4.0, 16.0) * scale,
@@ -279,12 +308,31 @@ fn randomize_panel(state: &mut WindowState) {
 
 /// 按当前窗口尺寸重建背景纹理：有自定义图片用图片（cover 裁剪），否则用程序化渐变。
 fn rebuild_backdrop(state: &mut WindowState) {
-    let (w, h) = (state.config.width, state.config.height);
-    let rgba = match &state.backdrop_image {
+    rebuild_backdrop_into(
+        &mut state.backdrop,
+        &state.device,
+        &state.queue,
+        &state.backdrop_image,
+        state.config.width,
+        state.config.height,
+    );
+}
+
+/// [`rebuild_backdrop`] 的字段级版本：render 循环里字段已解构，
+/// 拿不到整个 WindowState。
+fn rebuild_backdrop_into(
+    backdrop: &mut Backdrop,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &Option<(std::path::PathBuf, image::RgbaImage)>,
+    w: u32,
+    h: u32,
+) {
+    let rgba = match image {
         Some((_, img)) => backdrop_image::fit_cover(img, w, h),
         None => backdrop_gen::generate_backdrop(w, h),
     };
-    state.backdrop = Backdrop::from_rgba(&state.device, &state.queue, w, h, &rgba);
+    *backdrop = Backdrop::from_rgba(device, queue, w, h, &rgba);
 }
 
 /// 加载图片作为背景；失败时在面板上显示 4 秒错误提示。
@@ -297,34 +345,9 @@ fn load_backdrop_file(state: &mut WindowState, path: &std::path::Path) {
         }
         Err(e) => {
             log::error!("{e}");
-            state.backdrop_error = Some((e, state.egui_ctx.time() as f32));
+            state.backdrop_error = Some((e, state.ui.ctx().time() as f32));
         }
     }
-}
-
-/// egui 默认字体不含 CJK，注册平台系统中文字体（PingFang / 微软雅黑 / Noto CJK）。
-fn install_cjk_font(ctx: &egui::Context) {
-    let candidates = [
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    ];
-    for path in candidates {
-        if let Ok(bytes) = std::fs::read(path) {
-            let mut fonts = egui::FontDefinitions::default();
-            fonts
-                .font_data
-                .insert("cjk".into(), egui::FontData::from_owned(bytes).into());
-            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-                fonts.families.entry(family).or_default().push("cjk".into());
-            }
-            ctx.set_fonts(fonts);
-            return;
-        }
-    }
-    log::warn!("未找到系统 CJK 字体，参数面板中文将显示为方块");
 }
 
 /// 把当前玻璃面板渲染为 PNG。CLI 截图与面板"保存截图"按钮共用。
@@ -426,19 +449,20 @@ fn render_png(
 
 /// egui 参数面板内容：形状 / 折射 / 色散高光模糊 / 着色 / 阴影 分组滑杆 + 预设 + 截图。
 /// 面板本体（`Panel::right + show_collapsible`）在 render 循环里创建，这里只画内容。
-fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
+/// 形状滑杆写的是弹簧**目标值**——拖动时玻璃平滑地长过去，而不是跳变。
+fn build_ui(ui: &mut egui::Ui, d: &mut Demo) {
     ui.add_space(4.0);
     ui.heading("Vitreo");
     ui.label(format!(
         "{:.0} fps · 拖动玻璃面板 · Tab 隐藏面板",
-        state.fps
+        *d.fps
     ));
     ui.separator();
 
     ui.horizontal(|ui| {
         for name in ["默认", "水晶", "彩虹棱镜", "磨砂", "胶囊"] {
             if ui.small_button(name).clicked() {
-                apply_preset(state, name);
+                apply_preset(d, name);
             }
         }
     });
@@ -448,17 +472,15 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
             .on_hover_text("在合理范围内随机生成一组参数")
             .clicked()
         {
-            randomize_panel(state);
+            randomize_panel(d);
         }
         if ui
             .button("居中玻璃")
             .on_hover_text("把玻璃面板移回视口中心")
             .clicked()
         {
-            state.panel.target = [
-                state.config.width as f32 * 0.5,
-                state.config.height as f32 * 0.5,
-            ];
+            let target = [d.size[0] as f32 * 0.5, d.size[1] as f32 * 0.5];
+            d.panel().set_target_center(target);
         }
     });
     ui.horizontal(|ui| {
@@ -470,10 +492,10 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
             let pick = rfd::FileDialog::new()
                 .set_title("选择背景图片")
                 .add_filter("图片", &["png", "jpg", "jpeg"])
-                .set_parent(state.window.as_ref())
+                .set_parent(d.window.as_ref())
                 .pick_file();
             if let Some(path) = pick {
-                load_backdrop_file(state, &path);
+                d.pending_load = Some(path);
             }
         }
         if ui
@@ -481,18 +503,17 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
             .on_hover_text("恢复程序化生成的渐变网格背景")
             .clicked()
         {
-            state.backdrop_image = None;
-            rebuild_backdrop(state);
+            d.clear_backdrop = true;
         }
     });
-    if let Some((path, _)) = &state.backdrop_image {
+    if let Some((path, _)) = d.backdrop_image {
         let name = path
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("(未知文件)");
         ui.label(egui::RichText::new(format!("背景: {name}")).small().weak());
     }
-    if let Some((err, t)) = &state.backdrop_error {
+    if let Some((err, t)) = &*d.backdrop_error {
         if ui.ctx().time() - (*t as f64) < 4.0 {
             ui.label(
                 egui::RichText::new(format!("⚠ {err}"))
@@ -503,33 +524,37 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
     }
     ui.separator();
 
-    let panel = &mut state.panel;
-    let style = &mut panel.style;
-
     egui::CollapsingHeader::new("形状")
         .default_open(true)
         .show(ui, |ui| {
+            let size = d.panel().target_size();
+            let mut w = size[0];
+            let mut h = size[1];
             ui.add(
-                egui::Slider::new(&mut panel.size[0], 120.0..=1400.0)
+                egui::Slider::new(&mut w, 120.0..=1400.0)
                     .text("宽度 (px)")
                     .clamping(egui::SliderClamping::Edits),
             );
             ui.add(
-                egui::Slider::new(&mut panel.size[1], 80.0..=900.0)
+                egui::Slider::new(&mut h, 80.0..=900.0)
                     .text("高度 (px)")
                     .clamping(egui::SliderClamping::Edits),
             );
-            let r_max = panel.size[0].min(panel.size[1]) * 0.5;
+            d.panel().set_target_size([w, h]);
+            let r_max = size[0].min(size[1]) * 0.5;
+            let mut r = d.panel().target_corner_radius();
             ui.add(
-                egui::Slider::new(&mut panel.corner_radius, 0.0..=r_max)
+                egui::Slider::new(&mut r, 0.0..=r_max)
                     .text("圆角 (px)")
                     .clamping(egui::SliderClamping::Edits),
             );
+            d.panel().set_target_corner_radius(r);
         });
 
     egui::CollapsingHeader::new("折射")
         .default_open(true)
         .show(ui, |ui| {
+            let style = d.panel().style_mut();
             ui.add(
                 egui::Slider::new(&mut style.ior, 1.0..=2.4)
                     .text("折射率 IOR")
@@ -555,6 +580,7 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
     egui::CollapsingHeader::new("色散 · 高光 · 模糊")
         .default_open(true)
         .show(ui, |ui| {
+            let style = d.panel().style_mut();
             ui.add(
                 egui::Slider::new(&mut style.dispersion, 0.0..=0.5)
                     .text("色散强度（蓝红 IOR 差）")
@@ -580,6 +606,7 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
         });
 
     egui::CollapsingHeader::new("着色").show(ui, |ui| {
+        let style = d.panel().style_mut();
         ui.horizontal(|ui| {
             ui.label("玻璃染色");
             let mut color = style.tint;
@@ -594,6 +621,7 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
     });
 
     egui::CollapsingHeader::new("阴影").show(ui, |ui| {
+        let style = d.panel().style_mut();
         ui.add(
             egui::Slider::new(&mut style.shadow.opacity, 0.0..=1.0)
                 .text("阴影不透明度")
@@ -626,74 +654,24 @@ fn build_ui(ui: &mut egui::Ui, state: &mut WindowState) {
             .unwrap_or(0);
         let path = format!("/tmp/glasses_{stamp}.png");
         let result = render_png(
-            &state.device,
-            &state.queue,
-            &state.offscreen_compositor,
-            &state.backdrop,
-            &state.panel.panel(),
-            [state.config.width, state.config.height],
+            d.device,
+            d.queue,
+            d.offscreen_compositor,
+            d.backdrop,
+            &d.glass.panels()[0].panel(),
+            d.size,
             &path,
         );
         match result {
-            Ok(()) => state.last_screenshot = Some((path, ui.ctx().time() as f32)),
+            Ok(()) => *d.last_screenshot = Some((path, ui.ctx().time() as f32)),
             Err(e) => log::error!("截图失败: {e}"),
         }
     }
-    if let Some((path, t)) = &state.last_screenshot {
+    if let Some((path, t)) = &*d.last_screenshot {
         if ui.ctx().time() - (*t as f64) < 4.0 {
             ui.label(format!("已保存: {path}"));
         }
     }
-}
-
-struct PanelState {
-    center: [f32; 2],
-    target: [f32; 2],
-    size: [f32; 2],
-    corner_radius: f32,
-    style: GlassStyle,
-}
-
-impl PanelState {
-    fn panel(&self) -> GlassPanel {
-        GlassPanel {
-            center: self.center,
-            size: self.size,
-            corner_radius: self.corner_radius,
-            velocity: [0.0; 2],
-            press: 0.0,
-            style: self.style,
-        }
-    }
-
-    fn lerp_to_target(&mut self, dt: f32) {
-        let k = 1.0 - (-dt * 18.0).exp();
-        for i in 0..2 {
-            self.center[i] += (self.target[i] - self.center[i]) * k;
-        }
-    }
-}
-
-fn main() {
-    env_logger::init();
-    let args = parse_args();
-
-    if let Some(path) = args.screenshot.clone() {
-        run_screenshot(&args, &path);
-        return;
-    }
-
-    let event_loop = EventLoop::new().expect("event loop");
-    event_loop.set_control_flow(ControlFlow::Poll);
-
-    let mut app = App {
-        args,
-        state: None,
-        last_frame: Instant::now(),
-        start: Instant::now(),
-    };
-
-    event_loop.run_app(&mut app).expect("event loop run");
 }
 
 struct WindowState {
@@ -707,18 +685,15 @@ struct WindowState {
     backdrop_image: Option<(std::path::PathBuf, image::RgbaImage)>,
     /// 最近一次背景加载错误（时间戳用于 4 秒后自动消失）。
     backdrop_error: Option<(String, f32)>,
-    compositor: Compositor,
     /// 离屏截图专用合成器（固定 Rgba8UnormSrgb，与 surface 格式解耦）。
     offscreen_compositor: Compositor,
-    egui_ctx: egui::Context,
-    egui_state: egui_winit::State,
-    egui_renderer: egui_wgpu::Renderer,
+    /// 弹簧玻璃层：唯一的面板 + 合成器 + 拖拽状态机。
+    glass: GlassLayer,
+    /// egui 三件套 + 帧接线。
+    ui: EguiFrame,
     show_panel: bool,
     fps: f32,
     last_screenshot: Option<(String, f32)>,
-    panel: PanelState,
-    cursor: [f32; 2],
-    drag: Option<[f32; 2]>,
 }
 
 struct App {
@@ -783,34 +758,24 @@ impl App {
             size.height,
             &backdrop_gen::generate_backdrop(size.width, size.height),
         );
-        let compositor = Compositor::new(&device, format);
+        let offscreen_compositor = Compositor::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
 
         let center = self
             .args
             .panel_center
             .map(|(x, y)| [x * scale, y * scale])
             .unwrap_or([size.width as f32 * 0.5, size.height as f32 * 0.55]);
-        let panel = PanelState {
-            center,
-            target: center,
-            size: [460.0 * scale, 240.0 * scale],
-            corner_radius: 72.0 * scale,
-            style: demo_style(&self.args, scale),
-        };
+        let mut panel = GlassPanel::new(center, [460.0 * scale, 240.0 * scale], 72.0 * scale);
+        panel.style = demo_style(&self.args, scale);
 
-        let egui_ctx = egui::Context::default();
-        install_cjk_font(&egui_ctx);
-        let egui_state = egui_winit::State::new(
-            egui_ctx.clone(),
-            egui::ViewportId::ROOT,
-            window.as_ref(),
-            Some(scale),
-            None,
-            None,
-        );
-        let egui_renderer =
-            egui_wgpu::Renderer::new(&device, format, egui_wgpu::RendererOptions::default());
-        let offscreen_compositor = Compositor::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        // bouncy 预设：拖拽放手后带一次果冻回弹，顺带展示 shader 级形变。
+        let mut glass = GlassLayer::new(&device, format, scale);
+        glass
+            .add_panel(panel, SpringConfig::bouncy())
+            .expect("single panel fits");
+
+        let ui = EguiFrame::new(&window, format, &device);
+        install_cjk_fonts(ui.ctx());
 
         self.state = Some(WindowState {
             window,
@@ -821,17 +786,12 @@ impl App {
             backdrop,
             backdrop_image: None,
             backdrop_error: None,
-            compositor,
             offscreen_compositor,
-            egui_ctx,
-            egui_state,
-            egui_renderer,
+            glass,
+            ui,
             show_panel: true,
             fps: 0.0,
             last_screenshot: None,
-            panel,
-            cursor: center,
-            drag: None,
         });
 
         // --image：启动时直接换背景（失败则回退默认背景并提示）
@@ -853,7 +813,7 @@ impl App {
         let dt = self.last_frame.elapsed().as_secs_f32().min(0.1);
         self.last_frame = Instant::now();
         state.fps = state.fps * 0.9 + (1.0 / dt.max(1e-6)) * 0.1;
-        state.panel.lerp_to_target(dt);
+        state.glass.advance(dt);
 
         let frame = match state.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
@@ -885,104 +845,91 @@ impl App {
 
         let time = self.start.elapsed().as_secs_f32();
 
-        // ---- egui：先跑 UI 逻辑（可能修改面板参数），再统一编码 ----
-        // Context 内部是 Arc，clone 廉价，且让 build_ui 能独占整个 state。
-        let egui_ctx = state.egui_ctx.clone();
-        let input = state.egui_state.take_egui_input(&state.window);
-        let mut full_output = egui_ctx.run_ui(input, |ui| {
+        // ---- UI 阶段：解构字段得到互不相交的借用（run_ui 的闭包要改玻璃参数）----
+        let WindowState {
+            window,
+            device,
+            queue,
+            surface: _,
+            config,
+            backdrop,
+            backdrop_image,
+            backdrop_error,
+            offscreen_compositor,
+            glass,
+            ui,
+            show_panel,
+            fps,
+            last_screenshot,
+        } = state;
+
+        let mut demo = Demo {
+            glass,
+            window,
+            device,
+            queue,
+            offscreen_compositor,
+            backdrop,
+            size: [config.width, config.height],
+            fps,
+            backdrop_image,
+            backdrop_error,
+            last_screenshot,
+            pending_load: None,
+            clear_backdrop: false,
+        };
+        ui.run_ui(window, |ui| {
             // show_collapsible 会在拖边缘收起时翻转 is_expanded；
-            // 先拷出 bool 再写回，避免与闭包对 state 的可变借用冲突。
-            let mut show = std::mem::take(&mut state.show_panel);
+            // 先拷出 bool 再写回，避免与闭包对 show_panel 的可变借用冲突。
+            let mut show = std::mem::take(show_panel);
             egui::Panel::right("controls")
                 .default_size(300.0)
-                .show_collapsible(ui, &mut show, |ui| build_ui(ui, state));
-            state.show_panel = show;
+                .show_collapsible(ui, &mut show, |ui| build_ui(ui, &mut demo));
+            *show_panel = show;
         });
-        state
-            .egui_state
-            .handle_platform_output(&state.window, full_output.platform_output);
-        let clipped_primitives =
-            egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
 
-        // 纹理增量必须无条件处理：字体图集可能到某一帧才生成，而那一帧未必有
-        // 可绘制的几何体（clipped_primitives 为空）。漏处理会让字体纹理永远传不
-        // 上去，也会让 TexturesDelta 在析构时因未结清而触发 epaint 的 debug 断言。
-        for (id, deltas) in &full_output.textures_delta.set {
-            for delta in deltas {
-                state
-                    .egui_renderer
-                    .update_texture(&state.device, &state.queue, *id, delta);
+        // UI 期间请求的换背景：整块替换 &mut Backdrop，等 demo 的字段借用
+        // 结束后再做（时间戳用本帧 egui 的时钟）。
+        let Demo {
+            pending_load,
+            clear_backdrop,
+            ..
+        } = demo;
+        if clear_backdrop {
+            *backdrop_image = None;
+            rebuild_backdrop_into(backdrop, device, queue, backdrop_image, config.width, config.height);
+        } else if let Some(path) = pending_load {
+            match backdrop_image::load_image_rgba(&path) {
+                Ok(img) => {
+                    log::info!("背景图片已加载: {}", path.display());
+                    *backdrop_image = Some((path, img));
+                    rebuild_backdrop_into(backdrop, device, queue, backdrop_image, config.width, config.height);
+                }
+                Err(e) => {
+                    log::error!("{e}");
+                    *backdrop_error = Some((e, ui.ctx().time() as f32));
+                }
             }
         }
 
-        let pixels_per_point = state.window.scale_factor() as f32;
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [state.config.width, state.config.height],
-            pixels_per_point,
-        };
-
-        let panels = [state.panel.panel()];
-        let mut encoder = state
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        state.compositor.render(
-            &state.queue,
+        // ---- 玻璃阶段 ----
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        glass.render_static(
+            queue,
             &mut encoder,
-            &state.backdrop,
+            backdrop,
             &view,
-            [state.config.width as f32, state.config.height as f32],
+            [config.width as f32, config.height as f32],
             time,
-            vitreo::CompositeStrategy::Stack,
-            &panels,
         );
 
-        if !clipped_primitives.is_empty() {
-            let egui_cmds = state.egui_renderer.update_buffers(
-                &state.device,
-                &state.queue,
-                &mut encoder,
-                &clipped_primitives,
-                &screen_descriptor,
-            );
-            {
-                // forget_lifetime 消费 self，先转换再借给 render；
-                // 块结束时 pass 释放对 encoder 的借用，才能 finish。
-                let mut egui_pass = encoder
-                    .begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("egui"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    })
-                    .forget_lifetime();
-                state
-                    .egui_renderer
-                    .render(&mut egui_pass, &clipped_primitives, &screen_descriptor);
-            }
-            let mut all = egui_cmds;
-            all.push(encoder.finish());
-            state.queue.submit(all);
-        } else {
-            state.queue.submit(Some(encoder.finish()));
-        }
+        // ---- egui 叠加 + 合并提交 ----
+        let egui_cmds = ui.paint(device, queue, &mut encoder, &view, [config.width, config.height]);
+        let mut all = egui_cmds;
+        all.push(encoder.finish());
+        queue.submit(all);
 
-        // 绘制结束后释放 egui 本帧不再引用的纹理。
-        for id in &full_output.textures_delta.free {
-            state.egui_renderer.free_texture(id);
-        }
-        full_output.textures_delta.clear();
-
-        state.queue.present(frame);
+        queue.present(frame);
     }
 
     fn resize(&mut self, width: u32, height: u32) {
@@ -999,21 +946,16 @@ impl App {
         rebuild_backdrop(state);
 
         // 面板留在视口内
-        for i in 0..2 {
-            let lim = [width as f32, height as f32][i];
-            state.panel.target[i] = state.panel.target[i].clamp(0.0, lim);
-            state.panel.center[i] = state.panel.center[i].clamp(0.0, lim);
-        }
+        state.glass.clamp_panels_to([width as f32, height as f32]);
     }
 
     fn apply_scale(&mut self) {
         let Some(state) = &mut self.state else {
             return;
         };
+        // 几何与像素计价材质按比例缩放；用户调过的物理量保持不动。
         let scale = state.window.scale_factor() as f32;
-        // 只按新 DPI 缩放几何尺寸；材质参数保留用户在面板里的调整。
-        state.panel.size = [460.0 * scale, 240.0 * scale];
-        state.panel.corner_radius = 72.0 * scale;
+        state.glass.apply_scale_factor(scale);
     }
 }
 
@@ -1050,8 +992,7 @@ impl ApplicationHandler for App {
 
         // 剩余事件喂给 egui；被 UI 消费的（拖滑杆、点按钮）不再传给玻璃交互。
         if let Some(state) = &mut self.state {
-            let response = state.egui_state.on_window_event(&state.window, &event);
-            if response.consumed {
+            if state.ui.on_window_event(&state.window, &event) {
                 return;
             }
         }
@@ -1068,10 +1009,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(state) = &mut self.state {
-                    state.cursor = [position.x as f32, position.y as f32];
-                    if let Some(grab) = state.drag {
-                        state.panel.target = [state.cursor[0] - grab[0], state.cursor[1] - grab[1]];
-                    }
+                    state
+                        .glass
+                        .pointer_moved([position.x as f32, position.y as f32]);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1081,14 +1021,12 @@ impl ApplicationHandler for App {
                 if let Some(ws) = &mut self.state {
                     match state {
                         ElementState::Pressed => {
-                            if ws.panel.panel().contains(ws.cursor) {
-                                ws.drag = Some([
-                                    ws.cursor[0] - ws.panel.center[0],
-                                    ws.cursor[1] - ws.panel.center[1],
-                                ]);
-                            }
+                            // 命中测试用最近一次 pointer_moved 的光标位置。
+                            ws.glass.pointer_press();
                         }
-                        ElementState::Released => ws.drag = None,
+                        ElementState::Released => {
+                            ws.glass.pointer_release();
+                        }
                     }
                 }
             }
@@ -1136,17 +1074,14 @@ fn run_screenshot(args: &Args, path: &str) {
         };
         let backdrop = Backdrop::from_rgba(&device, &queue, w, h, &rgba);
         let compositor = Compositor::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
-        let panel = GlassPanel {
-            center: args
-                .panel_center
+        let mut panel = GlassPanel::new(
+            args.panel_center
                 .map(|(x, y)| [x, y])
                 .unwrap_or([w as f32 * 0.5, h as f32 * 0.55]),
-            size: [460.0, 240.0],
-            corner_radius: 72.0,
-            velocity: [0.0; 2],
-            press: 0.0,
-            style: demo_style(args, 1.0),
-        };
+            [460.0, 240.0],
+            72.0,
+        );
+        panel.style = demo_style(args, 1.0);
 
         render_png(
             &device,
@@ -1161,4 +1096,26 @@ fn run_screenshot(args: &Args, path: &str) {
     });
 
     println!("screenshot saved: {path}");
+}
+
+fn main() {
+    env_logger::init();
+    let args = parse_args();
+
+    if let Some(path) = args.screenshot.clone() {
+        run_screenshot(&args, &path);
+        return;
+    }
+
+    let event_loop = EventLoop::new().expect("event loop");
+    event_loop.set_control_flow(ControlFlow::Poll);
+
+    let mut app = App {
+        args,
+        state: None,
+        last_frame: Instant::now(),
+        start: Instant::now(),
+    };
+
+    event_loop.run_app(&mut app).expect("event loop run");
 }
