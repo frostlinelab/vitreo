@@ -2850,6 +2850,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "log",
  "vitreo",
  "wgpu",
  "winit",

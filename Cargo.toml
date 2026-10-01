@@ -16,6 +16,7 @@ pollster = "0.4"
 egui = "0.36"
 egui-wgpu = "0.36"
 egui-winit = "0.36"
+log = "0.4"
 
 [profile.dev]
 opt-level = 1
