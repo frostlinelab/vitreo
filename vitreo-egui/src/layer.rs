@@ -77,17 +77,21 @@ impl GlassLayer {
     }
 
     /// 离屏实时背景模式：应用把自身场景画进 [`GlassLayer::scene_target_view`]，
-    /// 玻璃折射的正是这幅每帧更新的画面。`target_format` 须为 sRGB
-    /// （`LiveBackdrop::with_format` 会断言）。
+    /// 玻璃折射的正是这幅每帧更新的画面。
+    ///
+    /// 两个格式各司其职：`target_format` 是合成目标（surface）的格式，
+    /// `backdrop_format` 是离屏场景纹理的格式（须为 sRGB，
+    /// `LiveBackdrop::with_format` 会断言）——离屏纹理不必与 surface 同格式。
     pub fn with_live_backdrop(
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
+        backdrop_format: wgpu::TextureFormat,
         scale_factor: f32,
         width: u32,
         height: u32,
     ) -> Self {
         Self {
-            live: Some(LiveBackdrop::with_format(device, width, height, target_format)),
+            live: Some(LiveBackdrop::with_format(device, width, height, backdrop_format)),
             ..Self::new(device, target_format, scale_factor)
         }
     }

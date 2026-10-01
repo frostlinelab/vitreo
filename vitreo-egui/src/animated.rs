@@ -51,9 +51,19 @@ impl AnimatedPanel {
         self.h.set_target(size[1]);
     }
 
+    /// 当前尺寸目标（UI 滑杆读写用）。
+    pub fn target_size(&self) -> [f32; 2] {
+        [self.w.target(), self.h.target()]
+    }
+
     /// 设置圆角半径目标。
     pub fn set_target_corner_radius(&mut self, radius: f32) {
         self.radius.set_target(radius);
+    }
+
+    /// 当前圆角半径目标。
+    pub fn target_corner_radius(&self) -> f32 {
+        self.radius.target()
     }
 
     /// 把中心（当前值与目标）钳制进视口——resize 时防止面板漂出屏幕。
