@@ -1,7 +1,7 @@
 # Vitreo
 
 > **Write once, refract everywhere.（折射写一次，处处皆玻璃。）**
-> 立项 2026-09-25 · MIT · 状态：P2 完成，P3 进行中
+> 立项 2026-09-25 · MIT · 状态：P3 完成，P4 待启动
 
 渲染器无关的 Rust 玻璃材质层，基于 wgpu：单次片元着色完成 SDF 折射、色散与 Fresnel 边缘辉光。任何应用——egui、游戏、编辑器、overlay——都能给任意区域加上 Apple **Liquid Glass** 级别的玻璃材质。英文文档：[README.md](README.md)
 
@@ -19,11 +19,12 @@
 
 ```
 vitreo/            # 纯 wgpu：材质 + 合成器，零 UI 依赖
-├─ glass.wgsl      #   折射 shader
+├─ glass.wgsl      #   折射 shader（含速度/按压驱动的果冻形变）
 ├─ GlassStyle      #   IOR、thickness、depth、bevel、blur、tint、dispersion
 ├─ Backdrop        #   静态纹理 / 离屏实时纹理 / 视频帧
 └─ Compositor      #   多面板合成、重叠 Merge/Stack 策略
-glasses-egui       # egui 绑定（LiveBackdrop 离屏管线）—— 计划中（P3）
+vitreo-egui        # egui 绑定：弹簧面板（果冻形变）、拖拽/DPI 处理、
+                   #   EguiFrame 帧接线、LiveBackdrop 离屏管线
 examples/
 ├─ minimal         # 渐变/图片背景 + 可拖玻璃面板 ✓
 ├─ live-backdrop   # 折射应用自己渲染的场景：LiveBackdrop + Merge ✓
@@ -38,7 +39,7 @@ Rust 工具链由 `rust-toolchain.toml` 钉死；任何 wgpu 支持的 GPU（Vul
 cargo run -p minimal
 ```
 
-会打开一个渐变背景 + 可拖拽玻璃面板的窗口。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
+会打开一个渐变背景 + 可拖拽玻璃面板的窗口。拖拽带弹簧果冻手感——轮廓沿运动方向拉伸、折射滞后于手势（见[光学报告 §7](docs/optics.zh.md)）。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
 
 ```sh
 cargo run -p live-backdrop
@@ -51,7 +52,7 @@ P2 验收 demo：玻璃折射的是示例**自己渲染**的动画场景（auror
 - [x] **P0** — 把 jeantimex 的 glass shader 抠成无 DOM 依赖的纯纹理输入版
 - [x] **P1** — minimal demo：SDF 圆角面板、拖拽、折射 + 色散 + Fresnel 全开（核心验收）
 - [x] **P2** — 离屏 live-backdrop 管线 + 多面板合成器（Stack/Merge）
-- [ ] **P3** — egui 绑定 crate + 弹簧形变动画
+- [x] **P3** — `vitreo-egui` 绑定 crate：弹簧面板 + shader 级果冻形变（速度挤压拉伸、法线滞后、按压微缩——见光学报告 §7）
 - [ ] **P4** — 发布 `vitreo` 0.1 + showcase
 
 ## 文档

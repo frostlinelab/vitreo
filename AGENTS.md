@@ -11,13 +11,18 @@ Any application — egui, games, editors, overlays — can give any region an Ap
 ```
 vitreo/            # core crate: pure wgpu, zero UI deps
   src/glass.wgsl   #   the composite shader (single source of GPU truth)
-  src/sdf2d.rs     #   CPU oracle: SDF + height + normals (mirrors WGSL)
+  src/sdf2d.rs     #   CPU oracle: SDF + height + normals + jelly_* deformation (mirrors WGSL)
   src/optics.rs    #   CPU oracle: refract / dispersion / Fresnel (mirrors WGSL)
-  src/panel.rs     #   GlassPanel + PanelUniform (96-byte layout, must match WGSL)
+  src/panel.rs     #   GlassPanel (+ velocity/press motion inputs) + PanelUniform (96-byte layout, must match WGSL)
   src/style.rs     #   GlassStyle / ShadowStyle (the public material API)
   src/backdrop.rs  #   backdrop textures: static from_rgba / from_view + LiveBackdrop (offscreen, GPU mips)
   src/compositor.rs#   multi-panel compositor (max 8 panels, Stack/Merge strategies)
-examples/minimal   # gradient/image backdrop + draggable glass panel (egui params)
+vitreo-egui/       # egui binding crate (P3): pure egui/winit glue, zero wgpu-surface opinions
+  src/spring.rs    #   spring integrator (smooth/bouncy presets) — the animation oracle
+  src/animated.rs  #   AnimatedPanel: springs over center/size/radius/press; velocity feeds GlassPanel
+  src/layer.rs     #   GlassLayer: compositor + panels + drag state machine + LiveBackdrop + DPI
+  src/frame.rs     #   EguiFrame: egui-wgpu/winit per-frame wiring (incl. textures_delta fix)
+examples/minimal   # gradient/image backdrop + draggable spring panel (egui params)
 examples/live-backdrop  # glass refracting the app's own offscreen scene; M toggles Merge
 docs/optics.*.md   # physics report (EN primary, ZH translation)
 docs/figures/      # bilingual figure pipeline, see below
@@ -38,7 +43,7 @@ If you change any formula, update **all** of them in the same commit, run the te
 
 ```sh
 cargo build --workspace   # incremental is usually fast
-cargo test  --workspace   # 38 optics/sdf/layout/strategy tests + doc tests
+cargo test  --workspace   # 49 vitreo tests (optics/sdf/layout/strategy/jelly) + 18 vitreo-egui tests + doc tests
 cargo clippy --workspace  # keep it clean
 ```
 
@@ -71,4 +76,4 @@ cargo clippy --workspace  # keep it clean
 
 ## Roadmap status
 
-P0 (DOM-free shader port), P1 (minimal demo: full optics) and P2 (LiveBackdrop offscreen pipeline + Stack/Merge compositor) are done. Next: **P3** egui binding crate (`glasses-egui` + spring animations), then **P4** publish 0.1 + showcase. See README.md (or README.zh.md) for details.
+P0 (DOM-free shader port), P1 (minimal demo: full optics), P2 (LiveBackdrop offscreen pipeline + Stack/Merge compositor) and P3 (`vitreo-egui` binding crate: spring panels + shader-level jelly deformation) are done. Next: **P4** — publish `vitreo` 0.1 + showcase. See README.md (or README.zh.md) for details.

@@ -1,7 +1,7 @@
 # Vitreo
 
 > **Write once, refract everywhere.**
-> Founded 2026-09-25 · MIT · status: P2 done, P3 next
+> Founded 2026-09-25 · MIT · status: P3 done, P4 next
 
 A renderer-agnostic Rust glass-material layer built on wgpu: SDF refraction, chromatic dispersion, and Fresnel edge glow in one fragment pass. Any application — egui, games, editors, overlays — can give any region an Apple **Liquid Glass**-grade glass material. 中文说明：[README.zh.md](README.zh.md)
 
@@ -19,11 +19,12 @@ Glass is not a "skin" — it is an **optical medium**: 100% of its visual conten
 
 ```
 vitreo/            # pure wgpu: material + compositor, zero UI deps
-├─ glass.wgsl      #   the refraction shader
+├─ glass.wgsl      #   the refraction shader (incl. velocity/press jelly deformation)
 ├─ GlassStyle      #   IOR, thickness, depth, bevel, blur, tint, dispersion
 ├─ Backdrop        #   static texture / offscreen live texture / video frame
 └─ Compositor      #   multi-panel compositing, overlap Merge/Stack policies
-glasses-egui       # egui bindings (LiveBackdrop offscreen pipeline) — planned (P3)
+vitreo-egui        # egui bindings: spring-animated panels (jelly deformation),
+                   #   drag/DPI handling, EguiFrame render glue, LiveBackdrop pipeline
 examples/
 ├─ minimal         # gradient/image backdrop + draggable glass panel ✓
 ├─ live-backdrop   # refracting the app's own rendered scene: LiveBackdrop + Merge ✓
@@ -38,7 +39,7 @@ Rust toolchain is pinned in `rust-toolchain.toml`; any GPU that wgpu supports (V
 cargo run -p minimal
 ```
 
-A gradient backdrop with a draggable glass panel opens. Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
+A gradient backdrop with a draggable glass panel opens. Dragging springs with a jelly feel — the silhouette stretches along the motion and the refraction lags behind (see [the optics report §7](docs/optics.en.md)). Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
 
 ```sh
 cargo run -p live-backdrop
@@ -51,7 +52,7 @@ The P2 acceptance demo: the glass refracts a scene the example **renders itself*
 - [x] **P0** — strip jeantimex's glass shader into a DOM-free, pure-texture-input version
 - [x] **P1** — minimal demo: SDF rounded panel, dragging, full refraction + dispersion + Fresnel (core acceptance)
 - [x] **P2** — offscreen live-backdrop pipeline + multi-panel compositor (Stack/Merge)
-- [ ] **P3** — egui binding crate + spring deformation animation
+- [x] **P3** — `vitreo-egui` binding crate: spring panels + shader-level jelly deformation (velocity squash-stretch, normal lag, press shrink — §7 of the optics report)
 - [ ] **P4** — publish `vitreo` 0.1 + showcase
 
 ## Documentation
