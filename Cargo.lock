@@ -2844,6 +2844,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vitreo-egui"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "vitreo",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
