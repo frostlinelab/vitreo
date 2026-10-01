@@ -9,12 +9,10 @@ publish = false
 
 [dependencies]
 vitreo = { path = "../../vitreo" }
+vitreo-egui = { path = "../../vitreo-egui" }
 wgpu = { workspace = true }
 winit = { workspace = true }
 pollster = { workspace = true }
 bytemuck = { workspace = true }
-log = "0.4"
+log = { workspace = true }
 env_logger = "0.11"
-egui = { workspace = true }
-egui-wgpu = { workspace = true }
-egui-winit = { workspace = true }
