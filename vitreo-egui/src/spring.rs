@@ -68,6 +68,11 @@ impl Spring {
         Self { value, target: value, velocity: 0.0, config }
     }
 
+    /// 带初速度的构造（`AnimatedPanel` 从 `GlassPanel` 重建时承接速度）。
+    pub fn with_velocity(value: f32, velocity: f32, config: SpringConfig) -> Self {
+        Self { value, target: value, velocity, config }
+    }
+
     /// 设置目标。速度保持不变——这正是果冻感的来源。
     pub fn set_target(&mut self, target: f32) {
         self.target = target;
@@ -78,6 +83,14 @@ impl Spring {
         self.value = value;
         self.target = value;
         self.velocity = 0.0;
+    }
+
+    /// 等比缩放值、目标与速度（DPI 变化时用）。这是坐标变换而非新的
+    /// 动画目标：速度同步缩放，弹簧的相位与手感不变。
+    pub fn scale(&mut self, ratio: f32) {
+        self.value *= ratio;
+        self.target *= ratio;
+        self.velocity *= ratio;
     }
 
     /// 推进 `dt` 秒。内部按 [`SUBSTEP`] 切子步，`dt` 被钳制到 [`MAX_DT`]。
