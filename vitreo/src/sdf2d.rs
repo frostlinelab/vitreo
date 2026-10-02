@@ -4,6 +4,7 @@
 //! `union_sdf` / `union_normal` / `jelly_*` 一一对应，签名与参数顺序保持一致。
 
 use crate::optics::Vec3;
+use crate::style::JellyStyle;
 
 /// 圆角矩形 SDF（signed distance field）。
 ///
@@ -67,33 +68,31 @@ pub fn glass_normal(
     glass_normal_sdf(p, |q| sd_rounded_box(q, half_size, radius), bevel, thickness, eps)
 }
 
-// ---------- 果冻形变（与 glass.wgsl 的 JELLY_* / jelly_* 对应） ----------
+// ---------- 果冻形变（与 glass.wgsl 的 jelly_* 对应） ----------
 //
-// 艺术性扩展，不属于物理光学推导：运动中的面板按挤压拉伸动画原理
-// 沿速度方向伸长、垂直方向收缩，按压时整体微缩，bevel 法线滞后于运动。
-// 常数与公式必须与 glass.wgsl 逐行一致（parity 不变量）。
-
-/// 拉伸量增益：e = |velocity| * JELLY_STRETCH_GAIN（s/px，量纲为时间的倒数）。
-pub const JELLY_STRETCH_GAIN: f32 = 4e-4;
-/// 拉伸量上限（300 px/s 的运动即到达）。
-pub const JELLY_STRETCH_MAX: f32 = 0.15;
-/// 按压微缩：press = 1 时整体缩到 95%。
-pub const JELLY_PRESS_SQUASH: f32 = 0.05;
-/// 法线滞后倾斜增益（bevel 带内、按边缘权重加权）。
-pub const JELLY_NORMAL_LAG: f32 = 0.9;
+// 艺术性扩展，不属于物理光学推导：形变由面板**加速度**驱动——惯性力
+// F = −m·a 才是软体形变的物理来源。匀速拖动不变形；急加速沿加速度方向
+// 拉伸、垂直收缩；急停压缩；松手后随弹簧的阻尼振荡自然衰减。按压时整体
+// 微缩，bevel 法线滞后于运动。参数在 [`JellyStyle`]（运行时可调、逐面板
+// 独立），公式必须与 glass.wgsl 逐行一致（parity 不变量）。
 
 /// 把局部坐标 `p`（相对面板中心）映射进**未变形**盒子的采样空间：
-/// 先按压均匀微缩（均匀缩放的 SDF 是精确的），再沿速度方向压缩采样坐标
-/// （等效于轮廓沿速度拉伸、垂直收缩；距离按 [`jelly_scale`] 修正）。
+/// 先按压均匀微缩（均匀缩放的 SDF 是精确的），再沿加速度方向压缩采样坐标
+/// （等效于轮廓沿加速度拉伸、垂直收缩；距离按 [`jelly_scale`] 修正）。
 ///
 /// 与 WGSL `jelly_sample` 逐行一致。
-pub fn jelly_sample(p: [f32; 2], velocity: [f32; 2], press: f32) -> [f32; 2] {
-    let k = 1.0 - JELLY_PRESS_SQUASH * press;
+pub fn jelly_sample(
+    p: [f32; 2],
+    acceleration: [f32; 2],
+    press: f32,
+    jelly: &JellyStyle,
+) -> [f32; 2] {
+    let k = 1.0 - jelly.press_squash * press;
     let mut q = [p[0] / k, p[1] / k];
-    let speed = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
-    if speed > 1e-3 {
-        let dir = [velocity[0] / speed, velocity[1] / speed];
-        let e = (speed * JELLY_STRETCH_GAIN).min(JELLY_STRETCH_MAX);
+    let accel = (acceleration[0] * acceleration[0] + acceleration[1] * acceleration[1]).sqrt();
+    if accel > 1e-3 {
+        let dir = [acceleration[0] / accel, acceleration[1] / accel];
+        let e = (accel * jelly.stretch_gain).min(jelly.stretch_max);
         let along = q[0] * dir[0] + q[1] * dir[1];
         let perp = -q[0] * dir[1] + q[1] * dir[0];
         // 旋转回面板坐标系再求 SDF（盒子半尺寸是轴对齐的）。
@@ -107,10 +106,10 @@ pub fn jelly_sample(p: [f32; 2], velocity: [f32; 2], press: f32) -> [f32; 2] {
 /// 变形 SDF 的距离修正系数：按压缩放 × 拉伸的垂直收缩量。
 /// 零点（轮廓位置）不受它影响，只修正梯度量级以保持 AA 带宽近似不变。
 /// 与 WGSL `jelly_scale` 逐行一致。
-pub fn jelly_scale(velocity: [f32; 2], press: f32) -> f32 {
-    let k = 1.0 - JELLY_PRESS_SQUASH * press;
-    let speed = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
-    let e = (speed * JELLY_STRETCH_GAIN).min(JELLY_STRETCH_MAX);
+pub fn jelly_scale(acceleration: [f32; 2], press: f32, jelly: &JellyStyle) -> f32 {
+    let k = 1.0 - jelly.press_squash * press;
+    let accel = (acceleration[0] * acceleration[0] + acceleration[1] * acceleration[1]).sqrt();
+    let e = (accel * jelly.stretch_gain).min(jelly.stretch_max);
     k * (1.0 - 0.5 * e)
 }
 
@@ -120,24 +119,32 @@ pub fn jelly_sdf(
     p: [f32; 2],
     b: [f32; 2],
     r: f32,
-    velocity: [f32; 2],
+    acceleration: [f32; 2],
     press: f32,
+    jelly: &JellyStyle,
 ) -> f32 {
-    sd_rounded_box(jelly_sample(p, velocity, press), b, r) * jelly_scale(velocity, press)
+    sd_rounded_box(jelly_sample(p, acceleration, press, jelly), b, r)
+        * jelly_scale(acceleration, press, jelly)
 }
 
-/// 法线滞后倾斜：在 bevel 法线上叠加与速度**反向**的倾斜，
+/// 法线滞后倾斜：在 bevel 法线上叠加与加速度**反向**的倾斜，
 /// 让折射显得"跟不上"运动。`d` 是该像素的变形后 SDF（用于边缘权重：
 /// 只倾斜 bevel 带，内部平台保持平坦），`bevel` 为倒角宽度。
 /// 与 WGSL `jelly_lag` 逐行一致。
-pub fn jelly_lag(n: Vec3, velocity: [f32; 2], d: f32, bevel: f32) -> Vec3 {
-    let speed = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
-    if speed < 1e-3 {
+pub fn jelly_lag(
+    n: Vec3,
+    acceleration: [f32; 2],
+    d: f32,
+    bevel: f32,
+    jelly: &JellyStyle,
+) -> Vec3 {
+    let accel = (acceleration[0] * acceleration[0] + acceleration[1] * acceleration[1]).sqrt();
+    if accel < 1e-3 {
         return n;
     }
-    let dir = [velocity[0] / speed, velocity[1] / speed];
-    let e = (speed * JELLY_STRETCH_GAIN).min(JELLY_STRETCH_MAX);
-    let w = (1.0 - glass_height(d, bevel)) * JELLY_NORMAL_LAG;
+    let dir = [acceleration[0] / accel, acceleration[1] / accel];
+    let e = (accel * jelly.stretch_gain).min(jelly.stretch_max);
+    let w = (1.0 - glass_height(d, bevel)) * jelly.normal_lag;
     let x = n[0] - dir[0] * e * w;
     let y = n[1] - dir[1] * e * w;
     let len = (x * x + y * y + n[2] * n[2]).sqrt();
@@ -326,93 +333,108 @@ mod tests {
     }
 
     // 果冻形变的 parity 测试：轮廓零点必须落在解析预期的位置上，
-    // 法线滞后必须反向于运动方向且保持单位长度。
+    // 法线滞后必须反向于加速度方向且保持单位长度。默认参数下
+    // e = |a| × 6e-6，上限 0.12。
     mod jelly_tests {
         use super::*;
 
         const B: [f32; 2] = [100.0, 60.0];
         const R: f32 = 20.0;
+        const J: JellyStyle = JellyStyle {
+            stretch_gain: 6e-6,
+            stretch_max: 0.12,
+            press_squash: 0.05,
+            normal_lag: 0.6,
+        };
 
         #[test]
         fn identity_at_rest() {
-            // 零速度 + 零按压时，jelly_sdf 必须与普通 SDF 完全一致。
+            // 零加速度 + 零按压时，jelly_sdf 必须与普通 SDF 完全一致。
             for p in [[0.0, 0.0], [99.0, 0.0], [0.0, 59.0], [150.0, 0.0], [104.0, 63.0]] {
-                let d = jelly_sdf(p, B, R, [0.0, 0.0], 0.0);
+                let d = jelly_sdf(p, B, R, [0.0, 0.0], 0.0, &J);
                 let expected = sd_rounded_box(p, B, R);
                 assert!((d - expected).abs() < 1e-5, "p = {p:?}, d = {d}");
             }
         }
 
         #[test]
+        fn constant_velocity_no_deformation_case() {
+            // 加速度驱动：纯速度（无加速度信息）不进入形变。构造一个仅有
+            // "速度语义"的调用（加速度为零）验证轮廓不动——匀速拖动不变形。
+            let d = jelly_sdf([100.0, 0.0], B, R, [0.0, 0.0], 0.0, &J);
+            assert!(d.abs() < 1e-5, "edge d = {d}");
+        }
+
+        #[test]
         fn press_shrinks_silhouette_uniformly() {
             // press = 1 时均匀缩到 95%：右缘从 100 移到 95。
-            let d_edge = jelly_sdf([95.0, 0.0], B, R, [0.0, 0.0], 1.0);
+            let d_edge = jelly_sdf([95.0, 0.0], B, R, [0.0, 0.0], 1.0, &J);
             assert!(d_edge.abs() < 1e-4, "edge d = {d_edge}");
-            let d_in = jelly_sdf([0.0, 0.0], B, R, [0.0, 0.0], 1.0);
+            let d_in = jelly_sdf([0.0, 0.0], B, R, [0.0, 0.0], 1.0, &J);
             assert!((d_in - (-57.0)).abs() < 1e-3, "center d = {d_in}");
             // 中间按压量线性插值：press = 0.5 → 97.5。
-            let d_half = jelly_sdf([97.5, 0.0], B, R, [0.0, 0.0], 0.5);
+            let d_half = jelly_sdf([97.5, 0.0], B, R, [0.0, 0.0], 0.5, &J);
             assert!(d_half.abs() < 1e-4, "half-press edge d = {d_half}");
         }
 
         #[test]
-        fn stretch_elongates_along_velocity() {
-            // v = 200 px/s → e = 0.08：y = 0 轴上的轮廓从 100 移到 108，
-            // 垂直方向收缩 4%（1 - 0.5e）：轮廓从 60 移到 57.6。
-            let v = [200.0, 0.0];
-            let leading = jelly_sdf([108.0, 0.0], B, R, v, 0.0);
+        fn stretch_elongates_along_acceleration() {
+            // a = 10000 px/s² → e = 0.06：y = 0 轴上的轮廓从 100 移到 106，
+            // 垂直方向收缩 3%（1 − 0.5e）：轮廓从 60 移到 58.2。
+            let a = [10000.0, 0.0];
+            let leading = jelly_sdf([106.0, 0.0], B, R, a, 0.0, &J);
             assert!(leading.abs() < 0.01, "leading edge d = {leading}");
-            let trailing = jelly_sdf([-108.0, 0.0], B, R, v, 0.0);
+            let trailing = jelly_sdf([-106.0, 0.0], B, R, a, 0.0, &J);
             assert!(trailing.abs() < 0.01, "trailing edge d = {trailing}");
-            let side = jelly_sdf([0.0, B[1] * (1.0 - 0.5 * 0.08)], B, R, v, 0.0);
+            let side = jelly_sdf([0.0, B[1] * (1.0 - 0.5 * 0.06)], B, R, a, 0.0, &J);
             assert!(side.abs() < 0.01, "perpendicular edge d = {side}");
         }
 
         #[test]
         fn stretch_is_capped() {
-            // 极大速度下 e 钳制在 JELLY_STRETCH_MAX：轮廓最远 1.15 倍。
-            let v = [10000.0, 0.0];
-            let d = jelly_sdf([B[0] * (1.0 + JELLY_STRETCH_MAX), 0.0], B, R, v, 0.0);
+            // 极大加速度下 e 钳制在 stretch_max：轮廓最远 1.12 倍。
+            let a = [1e9, 0.0];
+            let d = jelly_sdf([B[0] * (1.0 + J.stretch_max), 0.0], B, R, a, 0.0, &J);
             assert!(d.abs() < 0.01, "capped edge d = {d}");
         }
 
         #[test]
-        fn stretch_grows_monotonically_with_speed() {
-            // 固定采样点 (101, 0)（静止轮廓外 1px）：速度越快轮廓越远，
+        fn stretch_grows_monotonically_with_acceleration() {
+            // 固定采样点 (101, 0)（静止轮廓外 1px）：加速度越大轮廓越远，
             // 该点的 SDF 值应单调递减（被越来越远的轮廓包进内侧）。
             let mut previous = f32::INFINITY;
-            for speed in [50.0, 100.0, 150.0, 200.0, 300.0] {
-                let d = jelly_sdf([101.0, 0.0], B, R, [speed, 0.0], 0.0);
-                assert!(d < previous, "speed {speed}: d = {d}, previous = {previous}");
+            for accel in [2500.0, 5000.0, 7500.0, 10000.0, 15000.0] {
+                let d = jelly_sdf([101.0, 0.0], B, R, [accel, 0.0], 0.0, &J);
+                assert!(d < previous, "accel {accel}: d = {d}, previous = {previous}");
                 previous = d;
             }
         }
 
         #[test]
-        fn stretch_follows_velocity_direction() {
-            // 垂直运动 (0, 200) → e = 0.08：y 轴上的轮廓从 60 移到 64.8。
-            let v = [0.0, 200.0];
-            let d = jelly_sdf([0.0, B[1] * 1.08], B, R, v, 0.0);
+        fn stretch_follows_acceleration_direction() {
+            // 垂直加速度 (0, 10000) → e = 0.06：y 轴上的轮廓从 60 移到 63.6。
+            let a = [0.0, 10000.0];
+            let d = jelly_sdf([0.0, B[1] * 1.06], B, R, a, 0.0, &J);
             assert!(d.abs() < 0.01, "vertical leading edge d = {d}");
-            // 垂直于运动的方向收缩：x 边从 100 移到 96。
-            let dx = jelly_sdf([100.0, 0.0], B, R, v, 0.0);
-            assert!((dx - 4.0).abs() < 0.05, "perpendicular contraction d = {dx}");
+            // 垂直于加速度的方向收缩：x 边从 100 移到 97。
+            let dx = jelly_sdf([100.0, 0.0], B, R, a, 0.0, &J);
+            assert!((dx - 3.0).abs() < 0.05, "perpendicular contraction d = {dx}");
         }
 
         #[test]
-        fn lag_tilts_normal_against_motion() {
-            // 右缘 bevel 带上，向右运动时法线 x 分量应减小（滞后 = 反向倾斜）。
+        fn lag_tilts_normal_against_acceleration() {
+            // 右缘 bevel 带上，向右加速时法线 x 分量应减小（滞后 = 反向倾斜）。
             let p = [99.0, 0.0];
             let base = glass_normal(p, B, R, 34.0, 6.0, 1.0);
-            let d = jelly_sdf(p, B, R, [200.0, 0.0], 0.0);
-            let lagged = jelly_lag(base, [200.0, 0.0], d, 34.0);
+            let d = jelly_sdf(p, B, R, [10000.0, 0.0], 0.0, &J);
+            let lagged = jelly_lag(base, [10000.0, 0.0], d, 34.0, &J);
             assert!(lagged[0] < base[0], "base nx = {}, lagged nx = {}", base[0], lagged[0]);
         }
 
         #[test]
         fn lag_is_identity_at_rest() {
             let n = [0.3, -0.4, 0.87];
-            let out = jelly_lag(n, [0.0, 0.0], -5.0, 34.0);
+            let out = jelly_lag(n, [0.0, 0.0], -5.0, 34.0, &J);
             assert!((out[0] - n[0]).abs() < 1e-6);
             assert!((out[1] - n[1]).abs() < 1e-6);
             assert!((out[2] - n[2]).abs() < 1e-6);
@@ -422,8 +444,8 @@ mod tests {
         fn lag_keeps_unit_length() {
             for p in [[0.0, 0.0], [99.0, 0.0], [0.0, 59.0], [104.0, 63.0], [-99.0, -30.0]] {
                 let base = glass_normal(p, B, R, 34.0, 6.0, 1.0);
-                let d = jelly_sdf(p, B, R, [-150.0, 90.0], 0.3);
-                let n = jelly_lag(base, [-150.0, 90.0], d, 34.0);
+                let d = jelly_sdf(p, B, R, [-7500.0, 4500.0], 0.3, &J);
+                let n = jelly_lag(base, [-7500.0, 4500.0], d, 34.0, &J);
                 let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
                 assert!((len - 1.0).abs() < 1e-5, "p = {p:?}, len = {len}");
             }
@@ -433,8 +455,18 @@ mod tests {
         fn lag_only_touches_bevel_band() {
             // 内部平台（离边缘远于 bevel 宽度）法线应保持 (0,0,1)。
             let n = [0.0, 0.0, 1.0];
-            let out = jelly_lag(n, [300.0, 0.0], -80.0, 34.0);
+            let out = jelly_lag(n, [15000.0, 0.0], -80.0, 34.0, &J);
             assert!(out[0].abs() < 1e-6, "interior nx = {}", out[0]);
+        }
+
+        #[test]
+        fn zero_gain_disables_deformation() {
+            // 全零 JellyStyle：任何加速度都不变形（用户可完全关闭果冻）。
+            let off = JellyStyle { stretch_gain: 0.0, ..J };
+            let d = jelly_sdf([100.0, 0.0], B, R, [50000.0, 0.0], 0.0, &off);
+            assert!(d.abs() < 1e-5, "edge d = {d}");
+            let n = jelly_lag([0.0, 0.0, 1.0], [50000.0, 0.0], -5.0, 34.0, &off);
+            assert!(n[0].abs() < 1e-6 && n[1].abs() < 1e-6, "n = {n:?}");
         }
     }
 }

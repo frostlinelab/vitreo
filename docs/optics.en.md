@@ -8,7 +8,7 @@
 
 ## Abstract
 
-Vitreo renders rectangular glass panels over arbitrary 2D backdrops using a single wgpu fragment pass. This document derives every equation the shader evaluates — the rounded-box signed distance field, the bevel height profile and its surface normals, Snell refraction turned into a screen-space displacement, chromatic dispersion from the Abbe number, and Schlick's approximation to the Fresnel reflectance — and justifies each physical constant against the literature. Every curve in the figures is computed by re-implementing the exact Rust/WGSL formulas in `docs/figures/generate.py`; nothing is drawn freehand. One deliberate *artistic* extension — a velocity-driven jelly deformation in the squash-and-stretch tradition of hand-drawn animation — is included and clearly marked as such (§7). We close with the mapping from physics to the public `GlassStyle` parameters and with worked numerical examples.
+Vitreo renders rectangular glass panels over arbitrary 2D backdrops using a single wgpu fragment pass. This document derives every equation the shader evaluates — the rounded-box signed distance field, the bevel height profile and its surface normals, Snell refraction turned into a screen-space displacement, chromatic dispersion from the Abbe number, and Schlick's approximation to the Fresnel reflectance — and justifies each physical constant against the literature. Every curve in the figures is computed by re-implementing the exact Rust/WGSL formulas in `docs/figures/generate.py`; nothing is drawn freehand. One deliberate *artistic* extension — an acceleration-driven jelly deformation in the squash-and-stretch tradition of hand-drawn animation — is included and clearly marked as such (§7). We close with the mapping from physics to the public `GlassStyle` parameters and with worked numerical examples.
 
 **Keywords:** refraction, Snell's law, signed distance fields, chromatic dispersion, Abbe number, Fresnel equations, Schlick approximation, squash and stretch, WGSL, wgpu
 
@@ -38,7 +38,7 @@ sdRoundedBox SDF → bevel height field → surface normal
   → Schlick–Fresnel edge glow + specular highlight
 ```
 
-The same math exists twice on the CPU side — `vitreo/src/sdf2d.rs` and `vitreo/src/optics.rs` — as a parity oracle: its 49 unit tests pin the numerical behavior, and any drift between Rust and WGSL would silently change the shape of every panel.
+The same math exists twice on the CPU side — `vitreo/src/sdf2d.rs` and `vitreo/src/optics.rs` — as a parity oracle: its 52 unit tests pin the numerical behavior, and any drift between Rust and WGSL would silently change the shape of every panel.
 
 ### 1.3 Notation
 
@@ -53,8 +53,8 @@ The same math exists twice on the CPU side — `vitreo/src/sdf2d.rs` and `vitreo
 | $D$ | optical path depth in px | §3.4 |
 | $V_d$ | Abbe number | §4 |
 | $F$ | Fresnel reflectance | §5 |
-| $\mathbf{v}$ | panel velocity (px/s), the jelly-deformation driver | §7 |
-| $e$ | stretch amount along $\mathbf{v}$ | §7 |
+| $\mathbf{a}$ | panel acceleration (px/s²), the jelly-deformation driver | §7 |
+| $e$ | stretch amount along $\mathbf{a}$ | §7 |
 | $p$ | press amount, $0..1$ | §7 |
 
 Coordinates are physical pixels with the origin at the viewport's top-left and $y$ pointing down, matching both the wgpu framebuffer and the winit cursor.
@@ -334,19 +334,21 @@ Everything so far is optics. This section is not. A panel whose SDF never change
 
 > **Honesty note.** Squash and stretch is one of the classic principles of hand-drawn and early 3D animation (Lasseter 1987, codifying practice that predates him by decades). No glass pane deforms this way optically; real rigid glass does not deform at all at UI timescales. What follows is a *feel* model, adopted because it is what the eye reads as "soft, responsive glass", and it is kept out of the physics sections above on purpose.
 
-Each panel carries two motion inputs alongside its geometry — `velocity` $\mathbf{v} \in \mathbb{R}^2$ in px/s and `press` $p \in [0, 1]$ — packed into what was previously reserved padding of the 96-byte uniform, so the layout is unchanged. The animation layer (a spring integrator, P3's `vitreo-egui` crate) supplies both; the shader only consumes them.
+Each panel carries two motion inputs alongside its geometry — `acceleration` $\mathbf{a} \in \mathbb{R}^2$ in px/s² and `press` $p \in [0, 1]$ — packed into what was previously reserved padding of the panel uniform (offsets 52–64), with the four `JellyStyle` parameters appended at offset 96, growing the uniform from 96 to 112 bytes (still a multiple of 16, so the uniform-array stride rule holds). The animation layer (a spring integrator) supplies both; the shader only consumes them, and a static `GlassPanel` simply leaves them at zero.
 
-**Stretch amount.** Motion elongates the silhouette along $\mathbf{v}$ by
+The deformation driver is the **acceleration**, not the velocity, because the inertial force $\mathbf{F} = -m\,\mathbf{a}$ is what actually deforms a soft body: a pane gliding at constant velocity is force-free and must not deform, while a jerked or abruptly halted pane must. Feeding the *analytic* spring acceleration $a = (k(x_\ast - x) - c\,v)/m$ into the shader has a second payoff: the wobble decays exactly with the spring's damped oscillation, so the deformation settles precisely as the panel settles — no separate decay curve, no "bouncing after it already stopped".
+
+**Stretch amount.** Acceleration elongates the silhouette along $\mathbf{a}$ by
 
 $$
-e \;=\; \min\!\bigl(\lVert\mathbf{v}\rVert \, k_{\text{gain}},\; e_{\max}\bigr),
-\qquad k_{\text{gain}} = 4 \times 10^{-4}\ \text{s/px},\quad e_{\max} = 0.15,
+e \;=\; \min\!\bigl(\lVert\mathbf{a}\rVert \, k_{\text{gain}},\; e_{\max}\bigr),
+\qquad k_{\text{gain}} = 6 \times 10^{-6}\ \text{s}^2/\text{px},\quad e_{\max} = 0.12,
 \tag{7.1}
 $$
 
-so 300 px/s — a brisk drag — saturates at $e = 0.12$ and nothing ever stretches past 15 %.
+so $20{,}000$ px/s² — the jerk of a snappy drag or of the first instant after release ($a \approx k \cdot \Delta x$ for the default spring, i.e. $170 \times 120$ px) — saturates at $e = 0.12$, and nothing ever stretches past 12 %.
 
-**Deformed silhouette.** The stretched rounded box has no closed-form SDF, so the shader evaluates the *unstretched* box in a squeezed sample space: with $\hat{\mathbf{v}}$ the unit velocity and $\hat{\mathbf{v}}_\perp$ its perpendicular, a pixel's local coordinate $\mathbf{p} = \text{pixel} - \text{center}$ maps to
+**Deformed silhouette.** The stretched rounded box has no closed-form SDF, so the shader evaluates the *unstretched* box in a squeezed sample space: with $\hat{\mathbf{a}}$ the unit acceleration and $\hat{\mathbf{a}}_\perp$ its perpendicular, a pixel's local coordinate $\mathbf{p} = \text{pixel} - \text{center}$ maps to
 
 $$
 \mathbf{q} \;=\; R\,\operatorname{diag}\!\Bigl(\tfrac{1}{1+e},\ \tfrac{1}{1-\tfrac{1}{2}e}\Bigr)\,R^{\!\top}\mathbf{p},
@@ -355,23 +357,25 @@ $$
 \tag{7.2}
 $$
 
-with $R = [\hat{\mathbf{v}}\ \hat{\mathbf{v}}_\perp]$ and $k_{\text{press}} = 0.05$ (a grab squashes the pane uniformly to 95 %; uniform scaling *is* exact for an SDF). The $1/(1+e)$ along-velocity squeeze is exactly the inverse of stretching the box, so the **silhouette zero-crossing is exact** — the leading edge really is at $(1+e)\,b_x$ — while the scale factor $s$ (the smaller of the two axis scales) only rescales distance magnitudes to keep the 1-px anti-aliasing band honest. This is the standard sampled-space approximation for anisotropically scaled SDFs; interior distances can drift by up to $\sim\!e/2$ px, invisible at $e \le 0.15$.
+with $R = [\hat{\mathbf{a}}\ \hat{\mathbf{a}}_\perp]$ and $k_{\text{press}} = 0.05$ (a grab squashes the pane uniformly to 95 %; uniform scaling *is* exact for an SDF). The $1/(1+e)$ along-acceleration squeeze is exactly the inverse of stretching the box, so the **silhouette zero-crossing is exact** — the leading edge really is at $(1+e)\,b_x$ — while the scale factor $s$ (the smaller of the two axis scales) only rescales distance magnitudes to keep the 1-px anti-aliasing band honest. This is the standard sampled-space approximation for anisotropically scaled SDFs; interior distances can drift by up to $\sim\!e/2$ px, invisible at $e \le 0.12$.
 
-**Normal lag.** Refraction reads as "the glass trails the gesture" when the bevel normals lean *against* the motion:
+**Normal lag.** Refraction reads as "the glass trails the gesture" when the bevel normals lean *against* the acceleration:
 
 $$
-\mathbf{n}' \;=\; \operatorname{normalize}\!\Bigl(\mathbf{n}_{xy} - \hat{\mathbf{v}}\,\bigl(e\, k_{\text{lag}}\,(1 - h(d, w))\bigr),\ n_z\Bigr),
-\qquad k_{\text{lag}} = 0.9.
+\mathbf{n}' \;=\; \operatorname{normalize}\!\Bigl(\mathbf{n}_{xy} - \hat{\mathbf{a}}\,\bigl(e\, k_{\text{lag}}\,(1 - h(d, w))\bigr),\ n_z\Bigr),
+\qquad k_{\text{lag}} = 0.6.
 \tag{7.3}
 $$
 
 The weight $(1 - h)$ from Eq. 2.2 restricts the tilt to the bevel band — the plateau stays flat, so the view through the middle of a moving pane is undistorted, exactly as for a pane at rest. The shade is subtle by construction: at $e = 0.12$ the largest tilt change is $\approx 0.11$ rad on the rim.
 
-Implementation lives in `sdf2d.rs::jelly_sample / jelly_scale / jelly_sdf / jelly_lag` with the constants above, mirrored line-by-line in `glass.wgsl`; the CPU tests pin the exact silhouette positions ($108$ px for a $100$ px half-extent at $200$ px/s), the cap, the press shrink, and the lag direction (tilt components flip sign with the velocity, unit length preserved). `generate.py` re-derives all of it for Fig. 6.
+**Runtime tuning.** The four constants of this section — $k_{\text{gain}}$, $e_{\max}$, $k_{\text{press}}$, $k_{\text{lag}}$ — are not hard-coded: they live in `JellyStyle` on `GlassStyle` (`stretch_gain`, `stretch_max`, `press_squash`, `normal_lag`) and ride along in the panel uniform, so the feel is per-panel and adjustable live (the demo ships sliders for exactly this); setting `stretch_gain = 0` disables the deformation outright.
 
-![Jelly deformation: velocity-stretched silhouette and lagging normal field](figures/jelly.svg)
+Implementation lives in `sdf2d.rs::jelly_sample / jelly_scale / jelly_sdf / jelly_lag`, mirrored line-by-line in `glass.wgsl`; the CPU tests pin the exact silhouette positions ($106$ px for a $100$ px half-extent at $10{,}000$ px/s²), the cap, the press shrink, the constant-velocity identity (zero acceleration ⇒ undeformed), and the lag direction (tilt against the acceleration, unit length preserved). `generate.py` re-derives all of it for Fig. 6.
 
-*Figure 6 — A 420×260 panel ($r = 64$) moving right. (a) Silhouettes at rest, at 150 px/s ($e = 0.06$, leading edge $+12.6$ px) and at 300 px/s ($e = 0.12$ capped, $+25.2$ px), plus the uniformly shrunk pressed state ($p = 1$). (b) Bevel-band normals at rest (grey) versus lagging (red): the tilt leans against the motion and fades to zero on the plateau. Generated by `docs/figures/generate.py` from Eq. 7.1–7.3.*
+![Jelly deformation: acceleration-stretched silhouette and lagging normal field](figures/jelly.svg)
+
+*Figure 6 — A 420×260 panel ($r = 64$) accelerating to the right. (a) Silhouettes at rest, at $10{,}000$ px/s² ($e = 0.06$, leading edge $+12.6$ px) and at $20{,}000$ px/s² ($e = 0.12$ capped, $+25.2$ px), plus the uniformly shrunk pressed state ($p = 1$). (b) Bevel-band normals at rest (grey) versus lagging (red): the tilt leans against the acceleration and fades to zero on the plateau. Generated by `docs/figures/generate.py` from Eq. 7.1–7.3.*
 
 ---
 
@@ -388,14 +392,15 @@ Implementation lives in `sdf2d.rs::jelly_sample / jelly_scale / jelly_sdf / jell
 | `specular` | key-light intensity | 0.85 | 5.3 |
 | `tint` / `tint_opacity` | coloration & glow color | white / 0 | 6 |
 | `shadow.*` | soft SDF shadow | off | 6 |
+| `jelly.*` | squash & stretch feel (`JellyStyle`: gain, cap, press, lag) | §7.1 | 7 |
 
-The motion inputs of §7 — `velocity`, `press` — live on `GlassPanel` (geometry), not on `GlassStyle` (material): they are per-instance animation state, not material constants.
+The motion inputs of §7 — `acceleration`, `press` — live on `GlassPanel` (geometry), not on `GlassStyle` (material): they are per-instance animation state, not material constants. The *feel* constants ($k_{\text{gain}}$, $e_{\max}$, $k_{\text{press}}$, $k_{\text{lag}}$ of §7) do live on `GlassStyle`, as the `JellyStyle` sub-struct.
 
 ## 9. Validation
 
-- **49 CPU unit tests** (`sdf2d.rs`, `optics.rs`, `panel.rs`, `compositor.rs`) pin: Snell's law at oblique incidence, the zero vector past the critical angle, linear growth in $D$, monotone growth in IOR and in thickness, blue-bends-more-than-red, $F_0(\text{air, crown}) = 0.0426$, $\Delta n(\text{BK7}) = 0.00805$, Fresnel endpoints, uniform-layout invariants (96 bytes; `velocity`/`press` at offsets 52/60), the Merge union-normal parity (a buried edge produces zero tilt, the fused outer bevel tilts by $+0.176$), and the jelly deformation of §7 (exact silhouette at $b_x(1+e)$ and $b_x(1-k_{\text{press}}p)$, the $e_{\max}$ cap, identity at rest, lag tilt against the motion, unit length preserved).
+- **52 CPU unit tests** (`sdf2d.rs`, `optics.rs`, `panel.rs`, `compositor.rs`) pin: Snell's law at oblique incidence, the zero vector past the critical angle, linear growth in $D$, monotone growth in IOR and in thickness, blue-bends-more-than-red, $F_0(\text{air, crown}) = 0.0426$, $\Delta n(\text{BK7}) = 0.00805$, Fresnel endpoints, uniform-layout invariants (112 bytes; `acceleration`/`press` at offsets 52/60, `jelly` at 96), the Merge union-normal parity (a buried edge produces zero tilt, the fused outer bevel tilts by $+0.176$), and the jelly deformation of §7 (exact silhouette at $b_x(1+e)$ and $b_x(1-k_{\text{press}}p)$, the $e_{\max}$ cap, identity at rest and at constant velocity, stretch following the acceleration direction, monotone growth in $\lVert\mathbf{a}\rVert$, lag tilt against the acceleration, unit length preserved).
 - **Figure parity.** All figures here are generated from a line-by-line NumPy transcription of the Rust/WGSL formulas (`docs/figures/generate.py`); re-run `.venv/bin/python docs/figures/generate.py` after any optics change and diff.
-- **Worked examples** (recomputed on every figure run): 50° → 30.26° (air→glass); $\theta_c = 41.14°$, $\theta_B = 56.66°$; $F_0 = 4.26\%$; displacement at $(0.6,0,0.8)$, $D=90$: 16.06 / 21.81 / 37.27 px (water / crown / diamond); red–blue displacement span 0.48 px (BK7) vs 7.0 px (default 0.15); jelly at 150/300 px/s: $e = 0.06/0.12$, leading edge 222.6 / 235.2 px (rest 210).
+- **Worked examples** (recomputed on every figure run): 50° → 30.26° (air→glass); $\theta_c = 41.14°$, $\theta_B = 56.66°$; $F_0 = 4.26\%$; displacement at $(0.6,0,0.8)$, $D=90$: 16.06 / 21.81 / 37.27 px (water / crown / diamond); red–blue displacement span 0.48 px (BK7) vs 7.0 px (default 0.15); jelly at $10{,}000/20{,}000$ px/s²: $e = 0.06/0.12$, leading edge 222.6 / 235.2 px (rest 210).
 
 ## 10. References and attribution
 

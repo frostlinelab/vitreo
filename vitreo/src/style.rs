@@ -23,6 +23,42 @@ impl Default for ShadowStyle {
     }
 }
 
+/// 果冻形变参数（squash & stretch，艺术性扩展，非物理光学推导）。
+///
+/// 形变由面板**加速度**驱动——惯性力 `F = −m·a` 才是软体形变的物理来源：
+/// 匀速拖动不变形，急加速沿加速度方向拉伸、垂直收缩，急停压缩，
+/// 松手后随弹簧的阻尼振荡自然衰减。全部参数运行时可调、逐面板独立。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JellyStyle {
+    /// 拉伸增益 `e = |acceleration| × gain`（s²/px，加速度量纲的倒数）。
+    /// 默认 6e-6：约 20000 px/s² 的加速度到达上限。
+    pub stretch_gain: f32,
+    /// 拉伸量上限（比例）。到达上限的加速度 = `stretch_max / stretch_gain`。
+    pub stretch_max: f32,
+    /// 按压微缩：`press = 1` 时整体缩到 `1 − press_squash`。
+    pub press_squash: f32,
+    /// bevel 法线滞后倾斜增益（0..1 量级，0 关闭滞后）。
+    pub normal_lag: f32,
+}
+
+impl Default for JellyStyle {
+    fn default() -> Self {
+        Self {
+            stretch_gain: 6e-6,
+            stretch_max: 0.12,
+            press_squash: 0.05,
+            normal_lag: 0.6,
+        }
+    }
+}
+
+impl JellyStyle {
+    /// 打包成 uniform 的 vec4（顺序与 `glass.wgsl` 的 `PanelData.jelly` 一致）。
+    pub fn to_vec4(self) -> [f32; 4] {
+        [self.stretch_gain, self.stretch_max, self.press_squash, self.normal_lag]
+    }
+}
+
 /// 一块玻璃的全部材质参数。
 ///
 /// `thickness` 与 `depth` 是两个不同的物理量（与 m2-md 的 uniform 划分一致）：
@@ -52,6 +88,8 @@ pub struct GlassStyle {
     pub tint_opacity: f32,
     /// 投影阴影。
     pub shadow: ShadowStyle,
+    /// 果冻形变参数（加速度驱动的 squash & stretch，运行时可调）。
+    pub jelly: JellyStyle,
 }
 
 impl Default for GlassStyle {
@@ -67,6 +105,7 @@ impl Default for GlassStyle {
             tint: [1.0, 1.0, 1.0],
             tint_opacity: 0.0,
             shadow: ShadowStyle::default(),
+            jelly: JellyStyle::default(),
         }
     }
 }
