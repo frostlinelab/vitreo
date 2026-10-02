@@ -17,7 +17,7 @@ mod backdrop_image;
 use std::sync::Arc;
 use std::time::Instant;
 
-use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle, ShadowStyle};
+use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle, JellyStyle, ShadowStyle};
 use vitreo_egui::{egui, install_cjk_fonts, AnimatedPanel, EguiFrame, GlassLayer, SpringConfig};
 use winit::{
     application::ApplicationHandler,
@@ -107,6 +107,7 @@ fn demo_style(args: &Args, scale: f32) -> GlassStyle {
             blur: 36.0 * scale,
             offset: [0.0, 18.0 * scale],
         },
+        jelly: JellyStyle::default(),
     }
 }
 
@@ -188,6 +189,7 @@ fn apply_preset(d: &mut Demo, name: &str) {
                     blur: 30.0 * scale,
                     offset: [0.0, 14.0 * scale],
                 },
+                jelly: JellyStyle::default(),
             };
         }
         "彩虹棱镜" => {
@@ -208,6 +210,7 @@ fn apply_preset(d: &mut Demo, name: &str) {
                     blur: 36.0 * scale,
                     offset: [0.0, 16.0 * scale],
                 },
+                jelly: JellyStyle::default(),
             };
         }
         "磨砂" => {
@@ -228,6 +231,7 @@ fn apply_preset(d: &mut Demo, name: &str) {
                     blur: 48.0 * scale,
                     offset: [0.0, 20.0 * scale],
                 },
+                jelly: JellyStyle::default(),
             };
         }
         "胶囊" => {
@@ -248,6 +252,7 @@ fn apply_preset(d: &mut Demo, name: &str) {
                     blur: 32.0 * scale,
                     offset: [0.0, 18.0 * scale],
                 },
+                jelly: JellyStyle::default(),
             };
         }
         _ => {
@@ -269,6 +274,7 @@ fn apply_preset(d: &mut Demo, name: &str) {
                     blur: 36.0 * scale,
                     offset: [0.0, 18.0 * scale],
                 },
+                jelly: JellyStyle::default(),
             };
         }
     }
@@ -302,6 +308,12 @@ fn randomize_panel(d: &mut Demo) {
             opacity: rng.range(0.15, 0.4),
             blur: rng.range(20.0, 50.0) * scale,
             offset: [rng.range(-10.0, 10.0) * scale, rng.range(8.0, 24.0) * scale],
+        },
+        jelly: JellyStyle {
+            stretch_gain: rng.range(2e-6, 12e-6),
+            stretch_max: rng.range(0.08, 0.2),
+            press_squash: rng.range(0.03, 0.1),
+            normal_lag: rng.range(0.4, 0.8),
         },
     };
 }
@@ -575,6 +587,57 @@ fn build_ui(ui: &mut egui::Ui, d: &mut Demo) {
                     .text("光程（折射位移）")
                     .clamping(egui::SliderClamping::Edits),
             );
+        });
+
+    egui::CollapsingHeader::new("果冻 · 弹簧")
+        .default_open(true)
+        .show(ui, |ui| {
+            {
+                let style = d.panel().style_mut();
+                // 增益真实量级 ~6e-6 s²/px，滑杆按 ×10⁻⁶ 计价便于读数。
+                let mut gain = style.jelly.stretch_gain * 1e6;
+                ui.add(
+                    egui::Slider::new(&mut gain, 0.0..=20.0)
+                        .text("拉伸增益 (×10⁻⁶ s²/px)")
+                        .clamping(egui::SliderClamping::Edits),
+                );
+                style.jelly.stretch_gain = gain * 1e-6;
+                ui.add(
+                    egui::Slider::new(&mut style.jelly.stretch_max, 0.0..=0.3)
+                        .text("拉伸上限")
+                        .clamping(egui::SliderClamping::Edits),
+                );
+                ui.add(
+                    egui::Slider::new(&mut style.jelly.press_squash, 0.0..=0.15)
+                        .text("按压微缩")
+                        .clamping(egui::SliderClamping::Edits),
+                );
+                ui.add(
+                    egui::Slider::new(&mut style.jelly.normal_lag, 0.0..=1.0)
+                        .text("法线滞后")
+                        .clamping(egui::SliderClamping::Edits),
+                );
+            }
+            let mut cfg = d.panel().spring_config();
+            ui.add(
+                egui::Slider::new(&mut cfg.stiffness, 40.0..=600.0)
+                    .text("弹簧刚度")
+                    .clamping(egui::SliderClamping::Edits),
+            );
+            ui.add(
+                egui::Slider::new(&mut cfg.damping, 4.0..=60.0)
+                    .text("弹簧阻尼")
+                    .clamping(egui::SliderClamping::Edits),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "阻尼比 ζ = {:.2}（<1 回弹 · =1 无过冲）",
+                    cfg.damping_ratio()
+                ))
+                .small()
+                .weak(),
+            );
+            d.panel().set_spring_config(cfg);
         });
 
     egui::CollapsingHeader::new("色散 · 高光 · 模糊")

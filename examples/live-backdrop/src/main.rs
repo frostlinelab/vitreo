@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use vitreo::{CompositeStrategy, GlassPanel, GlassStyle, ShadowStyle};
+use vitreo::{CompositeStrategy, GlassPanel, GlassStyle, JellyStyle, ShadowStyle};
 use vitreo_egui::{egui, install_cjk_fonts, EguiFrame, GlassLayer, SpringConfig};
 use winit::{
     application::ApplicationHandler,
@@ -53,6 +53,7 @@ fn panel_style_a(scale: f32) -> GlassStyle {
             blur: 36.0 * scale,
             offset: [0.0, 18.0 * scale],
         },
+        jelly: JellyStyle::default(),
     }
 }
 
@@ -72,6 +73,7 @@ fn panel_style_b(scale: f32) -> GlassStyle {
             blur: 36.0 * scale,
             offset: [0.0, 18.0 * scale],
         },
+        jelly: JellyStyle::default(),
     }
 }
 

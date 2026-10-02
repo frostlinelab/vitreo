@@ -43,7 +43,7 @@ If you change any formula, update **all** of them in the same commit, run the te
 
 ```sh
 cargo build --workspace   # incremental is usually fast
-cargo test  --workspace   # 49 vitreo tests (optics/sdf/layout/strategy/jelly) + 18 vitreo-egui tests + doc tests
+cargo test  --workspace   # 52 vitreo tests (optics/sdf/layout/strategy/jelly) + 23 vitreo-egui tests + doc tests
 cargo clippy --workspace  # keep it clean
 ```
 
