@@ -1,8 +1,9 @@
 //! 弹簧驱动的玻璃面板 —— [`GlassPanel`] 的动画外壳。
 //!
-//! 中心、尺寸、圆角各挂弹簧；位置弹簧的速度直接喂给
-//! `GlassPanel::velocity`，着色器端由此产生果冻形变（squash & stretch +
-//! 法线滞后），按压弹簧驱动整体微缩。数学本体在 `vitreo::sdf2d::jelly_*`。
+//! 中心、尺寸、圆角各挂弹簧；位置弹簧的**加速度**（解析求出）直接喂给
+//! `GlassPanel::acceleration`，着色器端由此产生果冻形变（沿加速度方向的
+//! squash & stretch + 法线滞后）——惯性力才是形变来源，匀速拖动不变形。
+//! 按压弹簧用独立的快速临界阻尼（[`SpringConfig::snappy`]），驱动整体微缩。
 
 use vitreo::{GlassPanel, GlassStyle};
 
@@ -21,16 +22,30 @@ pub struct AnimatedPanel {
 }
 
 impl AnimatedPanel {
-    /// 从静态面板出发（弹簧瞬移到该几何，继承其速度）。
+    /// 从静态面板出发。`GlassPanel` 只携带加速度（果冻驱动量）不携带速度，
+    /// 故几何弹簧从静止开始；按压弹簧用独立的快速临界阻尼——无过冲
+    /// （press 不会冲成负值把面板顶大），且比几何弹簧更利落。
     pub fn new(panel: GlassPanel, config: SpringConfig) -> Self {
         Self {
-            cx: Spring::with_velocity(panel.center[0], panel.velocity[0], config),
-            cy: Spring::with_velocity(panel.center[1], panel.velocity[1], config),
+            cx: Spring::new(panel.center[0], config),
+            cy: Spring::new(panel.center[1], config),
             w: Spring::new(panel.size[0], config),
             h: Spring::new(panel.size[1], config),
             radius: Spring::new(panel.corner_radius, config),
-            press: Spring::new(panel.press, config),
+            press: Spring::new(panel.press, SpringConfig::snappy()),
             style: panel.style,
+        }
+    }
+
+    /// 几何弹簧（中心/尺寸/圆角）的参数。按压弹簧不在此列。
+    pub fn spring_config(&self) -> SpringConfig {
+        self.cx.config()
+    }
+
+    /// 运行时更换几何弹簧参数（调参面板用）；按压弹簧保持 `snappy`。
+    pub fn set_spring_config(&mut self, config: SpringConfig) {
+        for spring in [&mut self.cx, &mut self.cy, &mut self.w, &mut self.h, &mut self.radius] {
+            spring.set_config(config);
         }
     }
 
@@ -96,14 +111,14 @@ impl AnimatedPanel {
         self.press.advance(dt);
     }
 
-    /// 当前瞬时面板：几何取弹簧当前值，`velocity` 取位置弹簧速度（px/s），
-    /// `press` 取按压弹簧值。
+    /// 当前瞬时面板：几何取弹簧当前值，`acceleration` 取位置弹簧的解析
+    /// 加速度（px/s²，果冻形变驱动量），`press` 取按压弹簧值。
     pub fn panel(&self) -> GlassPanel {
         GlassPanel {
             center: [self.cx.value(), self.cy.value()],
             size: [self.w.value(), self.h.value()],
             corner_radius: self.radius.value(),
-            velocity: [self.cx.velocity(), self.cy.velocity()],
+            acceleration: [self.cx.acceleration(), self.cy.acceleration()],
             press: self.press.value(),
             style: self.style,
         }
@@ -165,13 +180,54 @@ mod tests {
     }
 
     #[test]
-    fn springs_carry_velocity_into_panel() {
+    fn springs_drive_acceleration_into_panel() {
         let mut p = panel_at([0.0, 0.0]);
         p.set_target_center([400.0, 0.0]);
-        p.advance(1.0 / 120.0);
         let panel = p.panel();
-        assert!(panel.velocity[0] > 0.0, "释放瞬间应有正向速度");
-        assert_eq!(panel.velocity[1], 0.0);
+        // 目标跳变 400px、k = 170（bouncy）→ a = 68000 px/s²。
+        assert!((panel.acceleration[0] - 170.0 * 400.0).abs() < 1.0);
+        assert_eq!(panel.acceleration[1], 0.0);
+        // 收敛后加速度归零：静止的面板不变形。
+        for _ in 0..240 {
+            p.advance(1.0 / 120.0);
+        }
+        assert!(p.panel().acceleration[0].abs() < 1.0);
+    }
+
+    #[test]
+    fn acceleration_decays_through_damped_oscillation() {
+        // bouncy 释放后的加速度振荡必须衰减（松手后的弹不浮夸的关键）：
+        // 记录每帧 |a| 的包络，后半程不得超过前半程的峰值。
+        let mut p = panel_at([0.0, 0.0]);
+        p.set_target_center([300.0, 0.0]);
+        let mut peak_first: f32 = 0.0;
+        let mut peak_second: f32 = 0.0;
+        for i in 0..240 {
+            p.advance(1.0 / 120.0);
+            let a = p.panel().acceleration[0].abs();
+            if i < 120 {
+                peak_first = peak_first.max(a);
+            } else {
+                peak_second = peak_second.max(a);
+            }
+        }
+        assert!(peak_second < peak_first * 0.5, "first = {peak_first}, second = {peak_second}");
+    }
+
+    #[test]
+    fn press_never_overshoots_negative() {
+        // 按压弹簧用 snappy（临界阻尼）：释放回落时 press 不得为负
+        // （负 press 会让 k = 1 − squash·press > 1，面板反而被顶大）。
+        let mut p = panel_at([0.0, 0.0]);
+        p.grab();
+        for _ in 0..40 {
+            p.advance(1.0 / 120.0);
+        }
+        p.release();
+        for _ in 0..120 {
+            p.advance(1.0 / 120.0);
+            assert!(p.panel().press >= 0.0, "press = {}", p.panel().press);
+        }
     }
 
     #[test]

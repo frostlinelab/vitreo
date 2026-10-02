@@ -6,8 +6,8 @@
 //! ## 核心类型
 //!
 //! - [`Spring`] / [`SpringConfig`]——弹簧积分器（平滑跟随与回弹手感）；
-//! - [`AnimatedPanel`]——弹簧化玻璃面板，速度直接喂给 `GlassPanel::velocity`
-//!   驱动着色器端的果冻形变；
+//! - [`AnimatedPanel`]——弹簧化玻璃面板，位置弹簧的加速度喂给
+//!   `GlassPanel::acceleration` 驱动着色器端的果冻形变；
 //! - [`GlassLayer`]——多面板合成层（Stack/Merge、拖拽、DPI、LiveBackdrop）；
 //! - [`EguiFrame`]——egui 三件套 + 每帧接线（含纹理增量修复）；
 //! - [`install_cjk_fonts`]——系统 CJK 字体装载。

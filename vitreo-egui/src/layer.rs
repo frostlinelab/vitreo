@@ -168,16 +168,19 @@ impl GlassLayer {
 
     // ---------- 指针事件（物理像素） ----------
 
-    /// 按下：命中则抓取最上层面板并返回其下标。
-    pub fn pointer_press(&mut self, position: [f32; 2]) -> Option<usize> {
+    /// 移动：抓取中则拖动目标点；同时记录光标位置供 [`GlassLayer::pointer_press`]
+    /// 的命中测试使用。
+    pub fn pointer_moved(&mut self, position: [f32; 2]) {
+        self.drag.moved(&mut self.panels, position);
+    }
+
+    /// 按下：在最近一次 [`GlassLayer::pointer_moved`] 的位置做命中测试，
+    /// 命中则抓取最上层面板并返回其下标。
+    pub fn pointer_press(&mut self) -> Option<usize> {
+        let position = self.drag.cursor;
         let index = self.drag.press(&self.panels, position)?;
         self.panels[index].grab();
         Some(index)
-    }
-
-    /// 移动：抓取中则拖动目标点。
-    pub fn pointer_moved(&mut self, position: [f32; 2]) {
-        self.drag.moved(&mut self.panels, position);
     }
 
     /// 释放：结束拖拽，返回被释放的面板下标。

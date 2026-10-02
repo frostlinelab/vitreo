@@ -1,9 +1,9 @@
 //! 弹簧积分器 —— 果冻动画的状态来源。
 //!
 //! 半隐式 Euler（先更新速度、再更新位置），固定子步长保证大 `dt` 下的稳定。
-//! 位置弹簧的 `velocity` 直接就是 [`crate::AnimatedPanel`] 喂给
-//! `GlassPanel::velocity` 的果冻形变驱动量：弹簧本身在欠阻尼下振荡，
-//! 着色器端自然得到随时间摆动的形变，无需额外的振荡器。
+//! 位置弹簧的加速度（由当前状态解析求出）就是 [`crate::AnimatedPanel`] 喂给
+//! `GlassPanel::acceleration` 的果冻形变驱动量——惯性力 F = −m·a 才是软体
+//! 形变的物理来源，匀速运动不变形，松手后的回弹随阻尼振荡自然衰减。
 
 /// 弹簧参数（质量-弹簧-阻尼）。
 ///
@@ -34,6 +34,12 @@ impl SpringConfig {
     /// 欠阻尼（ζ ≈ 0.5）：带果冻感的回弹。
     pub const fn bouncy() -> Self {
         Self::new(170.0, 13.0)
+    }
+
+    /// 快速临界阻尼：按压/释放这类短促状态变化专用——无过冲（press
+    /// 不会冲成负值把面板顶大）、收敛快（约 0.15 s）。
+    pub const fn snappy() -> Self {
+        Self::new(400.0, 40.0)
     }
 
     /// 阻尼比 ζ = c / (2√(km))：<1 欠阻尼（过冲），=1 临界，>1 过阻尼。
@@ -68,12 +74,7 @@ impl Spring {
         Self { value, target: value, velocity: 0.0, config }
     }
 
-    /// 带初速度的构造（`AnimatedPanel` 从 `GlassPanel` 重建时承接速度）。
-    pub fn with_velocity(value: f32, velocity: f32, config: SpringConfig) -> Self {
-        Self { value, target: value, velocity, config }
-    }
-
-    /// 设置目标。速度保持不变——这正是果冻感的来源。
+    /// 设置目标。速度保持不变——目标跳变才产生加速度（果冻形变的驱动量）。
     pub fn set_target(&mut self, target: f32) {
         self.target = target;
     }
@@ -117,14 +118,32 @@ impl Spring {
         self.value
     }
 
-    /// 当前速度（px/s）——位置弹簧的读数即 `GlassPanel::velocity`。
+    /// 当前速度（px/s）。
     pub fn velocity(&self) -> f32 {
         self.velocity
+    }
+
+    /// 当前加速度（px/s²），由当前状态解析求出：`a = (k·(target−value) − c·v)/m`。
+    /// 位置弹簧的读数即 `GlassPanel::acceleration`——果冻形变的驱动量。
+    /// 收敛后为 0（无加速度 = 无形变，正是"匀速/静止不变形"的来源）。
+    pub fn acceleration(&self) -> f32 {
+        (self.config.stiffness * (self.target - self.value) - self.config.damping * self.velocity)
+            / self.config.mass
     }
 
     /// 当前目标。
     pub fn target(&self) -> f32 {
         self.target
+    }
+
+    /// 弹簧参数。
+    pub fn config(&self) -> SpringConfig {
+        self.config
+    }
+
+    /// 运行时更换弹簧参数（调参面板用）。值/目标/速度保持，手感立即生效。
+    pub fn set_config(&mut self, config: SpringConfig) {
+        self.config = config;
     }
 
     /// 是否已收敛（距目标 < 0.1 px 且速度 < 1 px/s）。
@@ -235,5 +254,42 @@ mod tests {
     fn damping_ratio_matches_presets() {
         assert!((SpringConfig::smooth().damping_ratio() - 1.0).abs() < 0.02);
         assert!((SpringConfig::bouncy().damping_ratio() - 0.5).abs() < 0.02);
+        assert!((SpringConfig::snappy().damping_ratio() - 1.0).abs() < 0.02);
+    }
+
+    #[test]
+    fn acceleration_is_analytic_and_decays_to_zero() {
+        // 释放瞬间：a = k × 距离（速度为 0，阻尼项消失）。
+        let mut s = Spring::new(0.0, SpringConfig::smooth());
+        s.set_target(400.0);
+        assert!((s.acceleration() - 170.0 * 400.0).abs() < 1e-2);
+        // 收敛后：目标已到、速度为 0 → 加速度为 0（静止不变形）。
+        advance_seconds(&mut s, 2.0, 60.0);
+        assert!(s.acceleration().abs() < 1.0, "a = {}", s.acceleration());
+    }
+
+    #[test]
+    fn set_config_changes_feel_immediately() {
+        let mut s = Spring::new(0.0, SpringConfig::smooth());
+        s.set_target(100.0);
+        s.set_config(SpringConfig::snappy());
+        assert_eq!(s.config(), SpringConfig::snappy());
+        advance_seconds(&mut s, 1.0, 60.0);
+        // k=400 的 snappy 一秒内应已收敛（smooth 也收敛，但 snappy 快得多）。
+        assert!(s.settled(), "value = {}", s.value());
+    }
+
+    #[test]
+    fn snappy_never_overshoots() {
+        let mut s = Spring::new(0.0, SpringConfig::snappy());
+        s.set_target(100.0);
+        let mut crossed = false;
+        for _ in 0..240 {
+            s.advance(1.0 / 120.0);
+            if s.value() > 100.0 {
+                crossed = true;
+            }
+        }
+        assert!(!crossed, "临界阻尼不应越过目标，value = {}", s.value());
     }
 }
