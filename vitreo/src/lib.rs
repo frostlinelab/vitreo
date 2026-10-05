@@ -10,6 +10,15 @@
 //! `sdRoundedBox` SDF → bevel 高度场 → 法线 → `refract()` 屏幕空间位移 →
 //! 每通道独立 eta 色散 → Schlick–Fresnel 边缘高光。IOR 是真实材料常数（默认 ≈1.52，冕牌玻璃）。
 //!
+//! ## 动画层
+//!
+//! 弹簧动画同样住在核心里（渲染器无关，纯 CPU 数学）：
+//! - [`Spring`] —— 半隐式 Euler 弹簧积分器（smooth / bouncy / snappy 预设）；
+//! - [`AnimatedPanel`] —— 中心/尺寸/圆角各挂弹簧，位置弹簧的**解析加速度**
+//!   喂给 `GlassPanel::acceleration` 驱动着色器端果冻形变，按压弹簧驱动整体微缩；
+//! - [`GlassLayer`] —— 至多 8 块面板 + 合成策略 + 拖拽状态机 + 可选离屏实时背景，
+//!   全部以物理像素与秒为单位，与 UI 框架无关。
+//!
 //! ## 用法
 //!
 //! ```no_run
@@ -36,14 +45,20 @@
 //! - [jeantimex/glass-effect-webgpu](https://github.com/jeantimex/glass-effect-webgpu)（MIT）—
 //!   WGSL 折射 shader（thickness/bezel/refraction/blur/specular uniform 管线）直接来源。
 
+pub mod animated;
 pub mod backdrop;
 pub mod compositor;
+pub mod layer;
 pub mod optics;
 pub mod panel;
 pub mod sdf2d;
+pub mod spring;
 pub mod style;
 
+pub use animated::AnimatedPanel;
 pub use backdrop::{Backdrop, LiveBackdrop};
 pub use compositor::{Compositor, CompositeStrategy};
+pub use layer::GlassLayer;
 pub use panel::GlassPanel;
+pub use spring::{Spring, SpringConfig};
 pub use style::{GlassStyle, JellyStyle, ShadowStyle};

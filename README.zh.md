@@ -18,13 +18,13 @@
 ## 架构
 
 ```
-vitreo/            # 纯 wgpu：材质 + 合成器，零 UI 依赖
-├─ glass.wgsl      #   折射 shader（含速度/按压驱动的果冻形变）
+vitreo/            # 纯 wgpu：材质 + 合成器 + 动画层，零 UI 依赖
+├─ glass.wgsl      #   折射 shader（含加速度/按压驱动的果冻形变）
 ├─ GlassStyle      #   IOR、thickness、depth、bevel、blur、tint、dispersion
 ├─ Backdrop        #   静态纹理 / 离屏实时纹理 / 视频帧
-└─ Compositor      #   多面板合成、重叠 Merge/Stack 策略
-vitreo-egui        # egui 绑定：弹簧面板（果冻形变）、拖拽/DPI 处理、
-                   #   EguiFrame 帧接线、LiveBackdrop 离屏管线
+├─ Compositor      #   多面板合成、重叠 Merge/Stack 策略
+└─ GlassLayer      #   弹簧面板、拖拽/DPI 处理、LiveBackdrop 离屏管线
+vitreo-egui        # egui 绑定：EguiFrame 帧接线 + 系统 CJK 字体
 examples/
 ├─ minimal         # 渐变/图片背景 + 可拖玻璃面板 ✓
 ├─ live-backdrop   # 折射应用自己渲染的场景：LiveBackdrop + Merge ✓

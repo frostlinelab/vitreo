@@ -13,15 +13,16 @@ vitreo/            # core crate: pure wgpu, zero UI deps
   src/glass.wgsl   #   the composite shader (single source of GPU truth)
   src/sdf2d.rs     #   CPU oracle: SDF + height + normals + jelly_* deformation (mirrors WGSL)
   src/optics.rs    #   CPU oracle: refract / dispersion / Fresnel (mirrors WGSL)
-  src/panel.rs     #   GlassPanel (+ velocity/press motion inputs) + PanelUniform (96-byte layout, must match WGSL)
-  src/style.rs     #   GlassStyle / ShadowStyle (the public material API)
+  src/panel.rs     #   GlassPanel (+ acceleration/press motion inputs) + PanelUniform (112-byte layout, must match WGSL)
+  src/style.rs     #   GlassStyle / ShadowStyle / JellyStyle (the public material API)
   src/backdrop.rs  #   backdrop textures: static from_rgba / from_view + LiveBackdrop (offscreen, GPU mips)
   src/compositor.rs#   multi-panel compositor (max 8 panels, Stack/Merge strategies)
-vitreo-egui/       # egui binding crate (P3): pure egui/winit glue, zero wgpu-surface opinions
-  src/spring.rs    #   spring integrator (smooth/bouncy presets) — the animation oracle
-  src/animated.rs  #   AnimatedPanel: springs over center/size/radius/press; velocity feeds GlassPanel
+  src/spring.rs    #   spring integrator (smooth/bouncy/snappy presets) — the animation oracle
+  src/animated.rs  #   AnimatedPanel: springs over center/size/radius/press; acceleration feeds GlassPanel
   src/layer.rs     #   GlassLayer: compositor + panels + drag state machine + LiveBackdrop + DPI
+vitreo-egui/       # egui binding crate (P3): pure egui/winit glue, zero wgpu-surface opinions
   src/frame.rs     #   EguiFrame: egui-wgpu/winit per-frame wiring (incl. textures_delta fix)
+  src/fonts.rs     #   install_cjk_fonts: system CJK font loading
 examples/minimal   # gradient/image backdrop + draggable spring panel (egui params)
 examples/live-backdrop  # glass refracting the app's own offscreen scene; M toggles Merge
 docs/optics.*.md   # physics report (EN primary, ZH translation)
@@ -35,7 +36,7 @@ The same math exists in **four** places that must never drift:
 1. `vitreo/src/sdf2d.rs` + `vitreo/src/optics.rs` (CPU, tested),
 2. `vitreo/src/glass.wgsl` (GPU),
 3. `docs/figures/generate.py` (NumPy, figures),
-4. `vitreo/src/panel.rs` (96-byte uniform layout ↔ WGSL `PanelData`).
+4. `vitreo/src/panel.rs` (112-byte uniform layout ↔ WGSL `PanelData`).
 
 If you change any formula, update **all** of them in the same commit, run the tests, and regenerate the figures. The CPU tests are the oracle; a WGSL-only "fix" that skips them is a bug.
 
@@ -43,7 +44,7 @@ If you change any formula, update **all** of them in the same commit, run the te
 
 ```sh
 cargo build --workspace   # incremental is usually fast
-cargo test  --workspace   # 52 vitreo tests (optics/sdf/layout/strategy/jelly) + 23 vitreo-egui tests + doc tests
+cargo test  --workspace   # 75 vitreo tests (optics/sdf/layout/strategy/jelly/spring/animated/layer) + vitreo-egui doc tests
 cargo clippy --workspace  # keep it clean
 ```
 

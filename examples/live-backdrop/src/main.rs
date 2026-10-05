@@ -5,8 +5,8 @@
 //! 同时演示多面板重叠的两种合成策略：
 //! Stack（逐层覆盖）与 Merge（并集融合成一块连续玻璃，M 键切换）。
 //!
-//! P3 起改用 `vitreo-egui`：弹簧驱动面板（拖拽带果冻回弹 + 按压微缩），
-//! egui/winit/wgpu 接线全部来自绑定 crate；帧序不变：
+//! P3 起弹簧驱动面板（拖拽带果冻回弹 + 按压微缩）住在 vitreo 核心，
+//! egui/winit/wgpu 接线来自 `vitreo-egui` 绑定；帧序不变：
 //! 场景 pass → `GlassLayer::render_live`（内部生成 mip 链）→ egui 叠加。
 //!
 //! ```text
@@ -17,8 +17,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use vitreo::{CompositeStrategy, GlassPanel, GlassStyle, JellyStyle, ShadowStyle};
-use vitreo_egui::{egui, install_cjk_fonts, EguiFrame, GlassLayer, SpringConfig};
+use vitreo::{
+    CompositeStrategy, GlassLayer, GlassPanel, GlassStyle, JellyStyle, ShadowStyle, SpringConfig,
+};
+use vitreo_egui::{egui, install_cjk_fonts, EguiFrame};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -89,7 +91,7 @@ struct Demo<'a> {
 }
 
 impl Demo<'_> {
-    fn panel(&mut self) -> &mut vitreo_egui::AnimatedPanel {
+    fn panel(&mut self) -> &mut vitreo::AnimatedPanel {
         let index = *self.selected;
         self.glass.panel_mut(index).expect("selected panel")
     }

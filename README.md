@@ -18,13 +18,13 @@ Glass is not a "skin" — it is an **optical medium**: 100% of its visual conten
 ## Architecture
 
 ```
-vitreo/            # pure wgpu: material + compositor, zero UI deps
-├─ glass.wgsl      #   the refraction shader (incl. velocity/press jelly deformation)
+vitreo/            # pure wgpu: material + compositor + animation layer, zero UI deps
+├─ glass.wgsl      #   the refraction shader (incl. acceleration/press jelly deformation)
 ├─ GlassStyle      #   IOR, thickness, depth, bevel, blur, tint, dispersion
 ├─ Backdrop        #   static texture / offscreen live texture / video frame
-└─ Compositor      #   multi-panel compositing, overlap Merge/Stack policies
-vitreo-egui        # egui bindings: spring-animated panels (jelly deformation),
-                   #   drag/DPI handling, EguiFrame render glue, LiveBackdrop pipeline
+├─ Compositor      #   multi-panel compositing, overlap Merge/Stack policies
+└─ GlassLayer      #   spring panels, drag/DPI handling, LiveBackdrop pipeline
+vitreo-egui        # egui bindings: EguiFrame render glue + system CJK fonts
 examples/
 ├─ minimal         # gradient/image backdrop + draggable glass panel ✓
 ├─ live-backdrop   # refracting the app's own rendered scene: LiveBackdrop + Merge ✓

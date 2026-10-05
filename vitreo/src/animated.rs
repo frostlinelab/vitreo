@@ -5,7 +5,7 @@
 //! squash & stretch + 法线滞后）——惯性力才是形变来源，匀速拖动不变形。
 //! 按压弹簧用独立的快速临界阻尼（[`SpringConfig::snappy`]），驱动整体微缩。
 
-use vitreo::{GlassPanel, GlassStyle};
+use crate::{GlassPanel, GlassStyle};
 
 use crate::spring::{Spring, SpringConfig};
 
@@ -169,7 +169,7 @@ impl AnimatedPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vitreo::ShadowStyle;
+    use crate::ShadowStyle;
 
     fn panel_at(center: [f32; 2]) -> AnimatedPanel {
         let mut p = GlassPanel::new(center, [420.0, 260.0], 64.0);

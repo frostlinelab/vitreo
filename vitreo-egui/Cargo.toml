@@ -1,16 +1,18 @@
 [package]
 name = "vitreo-egui"
-description = "egui bindings for vitreo: spring-animated glass panels with jelly deformation, plus the egui-wgpu frame glue."
+description = "egui bindings for vitreo: egui-wgpu/winit frame glue and system CJK font loading."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-vitreo = { path = "../vitreo" }
 wgpu = { workspace = true }
 winit = { workspace = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
 egui-winit = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+vitreo = { path = "../vitreo" }

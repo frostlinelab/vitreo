@@ -1,14 +1,12 @@
 //! # vitreo-egui
 //!
-//! [`vitreo`](https://docs.rs/vitreo) 的 egui 绑定：弹簧驱动的玻璃面板
-//! （带果冻形变）+ egui-wgpu/winit 帧接线的成套封装。
+//! [`vitreo`](https://docs.rs/vitreo) 的 egui 绑定：egui-wgpu / egui-winit
+//! 帧接线与系统 CJK 字体装载。弹簧动画、玻璃面板与合成层都住在
+//! [`vitreo`](https://docs.rs/vitreo) 核心里（渲染器无关），本 crate 只保留
+//! egui 专属的胶水。
 //!
 //! ## 核心类型
 //!
-//! - [`Spring`] / [`SpringConfig`]——弹簧积分器（平滑跟随与回弹手感）；
-//! - [`AnimatedPanel`]——弹簧化玻璃面板，位置弹簧的加速度喂给
-//!   `GlassPanel::acceleration` 驱动着色器端的果冻形变；
-//! - [`GlassLayer`]——多面板合成层（Stack/Merge、拖拽、DPI、LiveBackdrop）；
 //! - [`EguiFrame`]——egui 三件套 + 每帧接线（含纹理增量修复）；
 //! - [`install_cjk_fonts`]——系统 CJK 字体装载。
 //!
@@ -27,7 +25,8 @@
 //! ```
 //!
 //! ```no_run
-//! # use vitreo_egui::{egui, wgpu, GlassLayer, EguiFrame, SpringConfig};
+//! # use vitreo_egui::{wgpu, EguiFrame};
+//! # use vitreo::GlassLayer;
 //! # fn frame(
 //! #     device: &wgpu::Device, queue: &wgpu::Queue,
 //! #     layer: &mut GlassLayer, ui: &mut EguiFrame,
@@ -49,17 +48,11 @@
 //! # }
 //! ```
 
-pub mod animated;
 pub mod fonts;
 pub mod frame;
-pub mod layer;
-pub mod spring;
 
-pub use animated::AnimatedPanel;
 pub use fonts::install_cjk_fonts;
 pub use frame::EguiFrame;
-pub use layer::GlassLayer;
-pub use spring::{Spring, SpringConfig};
 
 // 版本对齐：让应用 `use vitreo_egui::{egui, wgpu, winit}` 即可拿到与
 // 绑定 crate 完全一致的版本，避免重复写版本约束。

@@ -1,8 +1,8 @@
 //! minimal —— Vitreo 的 P1 验收 demo：
 //! 渐变背景 + 可拖玻璃面板，折射 + 色散 + Fresnel 全开。
 //!
-//! P3 起改用 `vitreo-egui`：弹簧驱动面板（拖拽带果冻回弹 + 按压微缩），
-//! egui/winit/wgpu 接线全部来自绑定 crate。Tab 或 H 键切换参数面板。
+//! P3 起弹簧驱动面板（拖拽带果冻回弹 + 按压微缩）住在 vitreo 核心，
+//! egui/winit/wgpu 接线来自 `vitreo-egui` 绑定。Tab 或 H 键切换参数面板。
 //!
 //! 用法：
 //! ```text
@@ -17,8 +17,11 @@ mod backdrop_image;
 use std::sync::Arc;
 use std::time::Instant;
 
-use vitreo::{Backdrop, Compositor, GlassPanel, GlassStyle, JellyStyle, ShadowStyle};
-use vitreo_egui::{egui, install_cjk_fonts, AnimatedPanel, EguiFrame, GlassLayer, SpringConfig};
+use vitreo::{
+    AnimatedPanel, Backdrop, Compositor, GlassLayer, GlassPanel, GlassStyle, JellyStyle,
+    ShadowStyle, SpringConfig,
+};
+use vitreo_egui::{egui, install_cjk_fonts, EguiFrame};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},

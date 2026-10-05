@@ -9,8 +9,8 @@
 //! 拖拽状态机（[`DragState`])是纯 CPU 逻辑，独立测试；`GlassLayer` 自身
 //! 持有 wgpu 资源，无法在无 GPU 环境下构造。
 
-use vitreo::{Backdrop, CompositeStrategy, Compositor, GlassPanel, LiveBackdrop};
-use vitreo::compositor::MAX_PANELS;
+use crate::{Backdrop, CompositeStrategy, Compositor, GlassPanel, LiveBackdrop};
+use crate::compositor::MAX_PANELS;
 
 use crate::animated::AnimatedPanel;
 use crate::spring::SpringConfig;
@@ -281,7 +281,7 @@ impl GlassLayer {
 mod tests {
     use super::*;
     use crate::spring::SpringConfig;
-    use vitreo::GlassPanel;
+    use crate::GlassPanel;
 
     /// 拖拽状态机可以在无 GPU 环境下用面板切片直接驱动。
     fn panels() -> Vec<AnimatedPanel> {
