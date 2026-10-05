@@ -144,7 +144,7 @@ struct Demo<'a> {
     window: &'a Arc<Window>,
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
-    offscreen_compositor: &'a Compositor,
+    offscreen_compositor: &'a mut Option<Compositor>,
     backdrop: &'a Backdrop,
     size: [u32; 2],
     fps: &'a mut f32,
@@ -716,10 +716,14 @@ fn build_ui(ui: &mut egui::Ui, d: &mut Demo) {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let path = format!("/tmp/glasses_{stamp}.png");
+        // 首次点击才创建离屏合成器（含管线编译），启动不为截图付费。
+        let compositor = d
+            .offscreen_compositor
+            .get_or_insert_with(|| Compositor::new(d.device, wgpu::TextureFormat::Rgba8UnormSrgb));
         let result = render_png(
             d.device,
             d.queue,
-            d.offscreen_compositor,
+            compositor,
             d.backdrop,
             &d.glass.panels()[0].panel(),
             d.size,
@@ -749,7 +753,8 @@ struct WindowState {
     /// 最近一次背景加载错误（时间戳用于 4 秒后自动消失）。
     backdrop_error: Option<(String, f32)>,
     /// 离屏截图专用合成器（固定 Rgba8UnormSrgb，与 surface 格式解耦）。
-    offscreen_compositor: Compositor,
+    /// 惰性创建：点"保存截图"时才建管线，不占启动时间。
+    offscreen_compositor: Option<Compositor>,
     /// 弹簧玻璃层：唯一的面板 + 合成器 + 拖拽状态机。
     glass: GlassLayer,
     /// egui 三件套 + 帧接线。
@@ -764,6 +769,52 @@ struct App {
     state: Option<WindowState>,
     last_frame: Instant,
     start: Instant,
+    first_frame_done: bool,
+}
+
+/// 启动闪屏帧：surface 配置好就立刻呈现背景主题色。
+/// 之后的背景生成、（冷 Metal 缓存下的）管线编译、字体装载都发生在
+/// 这帧之后——窗口从出现的第一刻起就是主题色，而不是系统白窗。
+fn present_splash(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    surface: &wgpu::Surface<'_>,
+) {
+    let frame = match surface.get_current_texture() {
+        wgpu::CurrentSurfaceTexture::Success(frame)
+        | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+        _ => return,
+    };
+    let view = frame
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("minimal/splash"),
+    });
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("minimal/splash-pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                // 背景渐变的起点色（线性空间），与 backdrop_gen 的首个停靠点一致。
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.075,
+                    g: 0.043,
+                    b: 0.212,
+                    a: 1.0,
+                }),
+                store: wgpu::StoreOp::Store,
+            },
+            depth_slice: None,
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    queue.submit([encoder.finish()]);
+    queue.present(frame);
 }
 
 impl App {
@@ -813,6 +864,7 @@ impl App {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
+        present_splash(&device, &queue, &surface);
 
         let backdrop = Backdrop::from_rgba(
             &device,
@@ -821,7 +873,6 @@ impl App {
             size.height,
             &backdrop_gen::generate_backdrop(size.width, size.height),
         );
-        let offscreen_compositor = Compositor::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
 
         let center = self
             .args
@@ -849,7 +900,7 @@ impl App {
             backdrop,
             backdrop_image: None,
             backdrop_error: None,
-            offscreen_compositor,
+            offscreen_compositor: None,
             glass,
             ui,
             show_panel: true,
@@ -993,6 +1044,10 @@ impl App {
         queue.submit(all);
 
         queue.present(frame);
+        if !self.first_frame_done {
+            self.first_frame_done = true;
+            log::info!("[startup] first frame: {} ms", self.start.elapsed().as_millis());
+        }
     }
 
     fn resize(&mut self, width: u32, height: u32) {
@@ -1178,6 +1233,7 @@ fn main() {
         state: None,
         last_frame: Instant::now(),
         start: Instant::now(),
+        first_frame_done: false,
     };
 
     event_loop.run_app(&mut app).expect("event loop run");
