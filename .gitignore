@@ -4,3 +4,7 @@
 # Python venv for docs/figures generation
 /.venv
 __pycache__/
+
+# ZCode editor metadata
+/.zcode
+.zcodeignore
