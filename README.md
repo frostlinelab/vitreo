@@ -1,5 +1,9 @@
 # Vitreo
 
+<p align="center">
+  <a href="https://frostlinelab.pages.dev"><img src="https://raw.githubusercontent.com/frostlinelab/.github/main/site/assets/banners/vitreo.svg" alt="Vitreo — a Frostline Lab project" width="820"></a>
+</p>
+
 > **Write once, refract everywhere.**
 > Founded 2026-09-25 · MIT · status: P3 done, P4 next
 
@@ -79,3 +83,8 @@ Vitreo is [MIT](LICENSE)-licensed. Built on the shoulders of these MIT projects 
 - [charlie-x/liquidImgui and forks](https://github.com/charlie-x/liquidImgui) — Windows DXGI Desktop Duplication desktop-composition reference
 - [zaroutt/Niri-glass](https://github.com/zaroutt/Niri-glass) — compositor-level SDF refraction in GLSL (Wayland)
 - [OverShifted/LiquidGlass](https://github.com/OverShifted/LiquidGlass) — C++/OpenGL SDF refraction reference
+
+<p align="center">
+  <a href="https://frostlinelab.pages.dev"><img src="https://raw.githubusercontent.com/frostlinelab/.github/main/site/assets/logos/vitreo.svg" alt="" width="28" height="28"></a><br>
+  <sub>Part of <a href="https://frostlinelab.pages.dev">Frostline Lab</a> · <a href="https://frostlinelab.pages.dev/gallery.html#vitreo">All projects</a></sub>
+</p>

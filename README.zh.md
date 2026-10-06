@@ -1,5 +1,9 @@
 # Vitreo
 
+<p align="center">
+  <a href="https://frostlinelab.pages.dev"><img src="https://raw.githubusercontent.com/frostlinelab/.github/main/site/assets/banners/vitreo.svg" alt="Vitreo — a Frostline Lab project" width="820"></a>
+</p>
+
 > **Write once, refract everywhere.（折射写一次，处处皆玻璃。）**
 > 立项 2026-09-25 · MIT · 状态：P3 完成，P4 待启动
 
@@ -79,3 +83,8 @@ Vitreo 以 [MIT](LICENSE) 许可发布。站在这些 MIT 项目的肩膀上—�
 - [charlie-x/liquidImgui 及其 forks](https://github.com/charlie-x/liquidImgui) — Windows DXGI Desktop Duplication 桌面合成参考
 - [zaroutt/Niri-glass](https://github.com/zaroutt/Niri-glass) — Wayland 合成器级 SDF 折射（GLSL）
 - [OverShifted/LiquidGlass](https://github.com/OverShifted/LiquidGlass) — C++/OpenGL SDF 折射参考
+
+<p align="center">
+  <a href="https://frostlinelab.pages.dev"><img src="https://raw.githubusercontent.com/frostlinelab/.github/main/site/assets/logos/vitreo.svg" alt="" width="28" height="28"></a><br>
+  <sub>Part of <a href="https://frostlinelab.pages.dev">Frostline Lab</a> · <a href="https://frostlinelab.pages.dev/gallery.html#vitreo">All projects</a></sub>
+</p>
