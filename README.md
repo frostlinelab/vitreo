@@ -29,6 +29,7 @@ vitreo-egui        # egui bindings: EguiFrame render glue + system CJK fonts
 examples/
 ├─ minimal         # gradient/image backdrop + draggable glass panel ✓
 ├─ live-backdrop   # refracting the app's own rendered scene: LiveBackdrop + Merge ✓
+├─ gallery         # control exhibition — GlassButton showcase (hover/press/click) ✓
 └─ tuner           # parameter playground — planned (P3+)
 ```
 
@@ -40,13 +41,19 @@ Rust toolchain is pinned in `rust-toolchain.toml`; any GPU that wgpu supports (V
 cargo run -p minimal
 ```
 
-A gradient backdrop with a draggable glass panel opens. Dragging springs with a jelly feel — the silhouette stretches along the motion and the refraction lags behind (see [the optics report §7](docs/optics.en.md)). A capsule glass button sits near the bottom: press it and it micro-shrinks, then springs back with a jelly pop; the click counter lives in the parameter panel. Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
+A gradient backdrop with a draggable glass panel opens. Dragging springs with a jelly feel — the silhouette stretches along the motion and the refraction lags behind (see [the optics report §7](docs/optics.en.md)). Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
 
 ```sh
 cargo run -p live-backdrop
 ```
 
 The P2 acceptance demo: the glass refracts a scene the example **renders itself** (aurora + grid). Two panels start deliberately overlapping — press `M` to switch between Stack (later panel covers) and Merge (panels fuse into one continuous glass body).
+
+```sh
+cargo run -p gallery
+```
+
+The control exhibition: six capsule buttons across six material families — default, crystal, frosted, prism dispersion, tinted, and a compact bouncy one. Every button runs the renderer-agnostic `GlassButton` state machine: hover brightens the specular, press micro-shrinks with a jelly squash, release inside counts a click (the guide panel keeps the tallies). Button labels are the "identity" layer, drawn by egui on top of the glass.
 
 ## Roadmap
 

@@ -29,6 +29,7 @@ vitreo-egui        # egui 绑定：EguiFrame 帧接线 + 系统 CJK 字体
 examples/
 ├─ minimal         # 渐变/图片背景 + 可拖玻璃面板 ✓
 ├─ live-backdrop   # 折射应用自己渲染的场景：LiveBackdrop + Merge ✓
+├─ gallery         # 控件展览 —— GlassButton 展示（悬停/按压/点击）✓
 └─ tuner           # 参数游乐场 —— 计划中（P3+）
 ```
 
@@ -40,13 +41,19 @@ Rust 工具链由 `rust-toolchain.toml` 钉死；任何 wgpu 支持的 GPU（Vul
 cargo run -p minimal
 ```
 
-会打开一个渐变背景 + 可拖拽玻璃面板的窗口。拖拽带弹簧果冻手感——轮廓沿运动方向拉伸、折射滞后于手势（见[光学报告 §7](docs/optics.zh.md)）。底部有一颗胶囊玻璃按钮：按下微缩、松开带果冻回弹，点击计数显示在参数面板里。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
+会打开一个渐变背景 + 可拖拽玻璃面板的窗口。拖拽带弹簧果冻手感——轮廓沿运动方向拉伸、折射滞后于手势（见[光学报告 §7](docs/optics.zh.md)）。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
 
 ```sh
 cargo run -p live-backdrop
 ```
 
 P2 验收 demo：玻璃折射的是示例**自己渲染**的动画场景（aurora + 网格）。两块面板初始故意重叠——`M` 键在 Stack（逐层覆盖）与 Merge（并集融合成一块连续玻璃）之间切换。
+
+```sh
+cargo run -p gallery
+```
+
+控件展览：六颗胶囊按钮覆盖六种材质家族——默认、水晶、磨砂、棱镜高色散、染色，以及一颗紧凑的 bouncy 弹簧款。每颗按钮都跑渲染器无关的 `GlassButton` 状态机：悬停提亮 specular、按下微缩带果冻挤压、按钮内释放计一次点击（右侧导览面板记录计数）。按钮文字是"身份"层，由 egui 画在玻璃体之上。
 
 ## 路线图
 

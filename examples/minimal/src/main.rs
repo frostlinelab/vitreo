@@ -18,8 +18,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use vitreo::{
-    AnimatedPanel, Backdrop, Compositor, GlassButton, GlassLayer, GlassPanel, GlassStyle,
-    JellyStyle, ShadowStyle, SpringConfig,
+    AnimatedPanel, Backdrop, Compositor, GlassLayer, GlassPanel, GlassStyle, JellyStyle,
+    ShadowStyle, SpringConfig,
 };
 use vitreo_egui::{egui, install_cjk_fonts, EguiFrame};
 use winit::{
@@ -151,8 +151,6 @@ struct Demo<'a> {
     backdrop: &'a Backdrop,
     size: [u32; 2],
     fps: &'a mut f32,
-    /// 玻璃按钮点击计数（只读展示）。
-    clicks: &'a u32,
     backdrop_image: &'a Option<(std::path::PathBuf, image::RgbaImage)>,
     backdrop_error: &'a mut Option<(String, f32)>,
     last_screenshot: &'a mut Option<(String, f32)>,
@@ -474,11 +472,6 @@ fn build_ui(ui: &mut egui::Ui, d: &mut Demo) {
         "{:.0} fps · 拖动玻璃面板 · Tab 隐藏面板",
         *d.fps
     ));
-    ui.label(
-        egui::RichText::new(format!("玻璃按钮已点击 {} 次", *d.clicks))
-            .small()
-            .weak(),
-    );
     ui.separator();
 
     ui.horizontal(|ui| {
@@ -767,14 +760,6 @@ struct WindowState {
     offscreen_compositor: Option<Compositor>,
     /// 弹簧玻璃层：唯一的面板 + 合成器 + 拖拽状态机。
     glass: GlassLayer,
-    /// 玻璃按钮控件（vitreo 的第一个控件）。
-    button: GlassButton,
-    /// 按钮创建时的 DPI（缩放换算基准）。
-    button_scale: f32,
-    /// 最近一次光标位置（按钮命中测试用）。
-    cursor: [f32; 2],
-    /// 按钮点击计数（egui 面板展示用）。
-    clicks: u32,
     /// egui 三件套 + 帧接线。
     ui: EguiFrame,
     show_panel: bool,
@@ -906,20 +891,6 @@ impl App {
             .add_panel(panel, SpringConfig::bouncy())
             .expect("single panel fits");
 
-        // 玻璃按钮：底部居中的胶囊控件（"身份"层的文字由 egui 画在玻璃之上）。
-        let mut button_style = GlassStyle::button();
-        button_style.bevel *= scale;
-        button_style.thickness *= scale;
-        button_style.depth *= scale;
-        button_style.shadow.blur *= scale;
-        button_style.shadow.offset = [0.0, 12.0 * scale];
-        let button = GlassButton::new(
-            [size.width as f32 * 0.5, size.height as f32 * 0.82],
-            [220.0 * scale, 64.0 * scale],
-            button_style,
-            SpringConfig::smooth(),
-        );
-
         let ui = EguiFrame::new(&window, format, &device);
         install_cjk_fonts(ui.ctx());
 
@@ -934,10 +905,6 @@ impl App {
             backdrop_error: None,
             offscreen_compositor: None,
             glass,
-            button,
-            button_scale: scale,
-            cursor: [size.width as f32 * 0.5, size.height as f32 * 0.5],
-            clicks: 0,
             ui,
             show_panel: true,
             fps: 0.0,
@@ -964,7 +931,6 @@ impl App {
         self.last_frame = Instant::now();
         state.fps = state.fps * 0.9 + (1.0 / dt.max(1e-6)) * 0.1;
         state.glass.advance(dt);
-        state.button.advance(dt);
 
         let frame = match state.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
@@ -1008,10 +974,6 @@ impl App {
             backdrop_error,
             offscreen_compositor,
             glass,
-            button,
-            button_scale: _,
-            cursor: _,
-            clicks,
             ui,
             show_panel,
             fps,
@@ -1027,7 +989,6 @@ impl App {
             backdrop,
             size: [config.width, config.height],
             fps,
-            clicks,
             backdrop_image,
             backdrop_error,
             last_screenshot,
@@ -1042,24 +1003,6 @@ impl App {
                 .default_size(300.0)
                 .show_collapsible(ui, &mut show, |ui| build_ui(ui, &mut demo));
             *show_panel = show;
-
-            // 按钮的"身份"层：文字由平台（这里 egui）画在玻璃体之上。
-            // 用 painter 直接绘制——不参与 egui 的交互命中，点击仍由
-            // 玻璃按钮自己的状态机处理。
-            let ppp = window.scale_factor() as f32;
-            let center = button.center();
-            ui.ctx()
-                .layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("glass-btn-label"),
-                ))
-                .text(
-                    egui::pos2(center[0] / ppp, center[1] / ppp),
-                    egui::Align2::CENTER_CENTER,
-                    "点我",
-                    egui::FontId::proportional(20.0),
-                    egui::Color32::WHITE,
-                );
         });
 
         // UI 期间请求的换背景：整块替换 &mut Backdrop，等 demo 的字段借用
@@ -1087,20 +1030,14 @@ impl App {
         }
 
         // ---- 玻璃阶段 ----
-        // 悬停提亮高光——桌面指针的即时反馈（控件材质由 demo 调制）。
-        let hovered = button.hovered();
-        button.style_mut().specular = if hovered { 1.30 } else { 1.05 };
-        let controls = [button.panel()];
-
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        glass.render_static_with_controls(
+        glass.render_static(
             queue,
             &mut encoder,
             backdrop,
             &view,
             [config.width as f32, config.height as f32],
             time,
-            &controls,
         );
 
         // ---- egui 叠加 + 合并提交 ----
@@ -1131,8 +1068,6 @@ impl App {
 
         // 面板留在视口内
         state.glass.clamp_panels_to([width as f32, height as f32]);
-        // 按钮回到底部居中（弹簧平滑移动）。
-        state.button.set_center([width as f32 * 0.5, height as f32 * 0.82]);
     }
 
     fn apply_scale(&mut self) {
@@ -1142,9 +1077,6 @@ impl App {
         // 几何与像素计价材质按比例缩放；用户调过的物理量保持不动。
         let scale = state.window.scale_factor() as f32;
         state.glass.apply_scale_factor(scale);
-        let ratio = scale / state.button_scale;
-        state.button.scale_by(ratio);
-        state.button_scale = scale;
     }
 }
 
@@ -1199,8 +1131,6 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(state) = &mut self.state {
                     let pos = [position.x as f32, position.y as f32];
-                    state.cursor = pos;
-                    state.button.pointer_move(pos);
                     state.glass.pointer_moved(pos);
                 }
             }
@@ -1211,25 +1141,12 @@ impl ApplicationHandler for App {
                 if let Some(ws) = &mut self.state {
                     match state {
                         ElementState::Pressed => {
-                            // 控件优先：按钮吃掉按下事件就不再开始面板拖拽。
-                            // 命中测试用最近一次 CursorMoved 的光标位置。
-                            if !ws.button.pointer_down(ws.cursor) {
-                                ws.glass.pointer_press();
-                            }
+                            ws.glass.pointer_press();
                         }
                         ElementState::Released => {
-                            if ws.button.pointer_up(ws.cursor) {
-                                ws.clicks += 1;
-                            }
                             ws.glass.pointer_release();
                         }
                     }
-                }
-            }
-            WindowEvent::Focused(false) => {
-                // 失焦取消按压：否则"按住 → 切走 → 回来抬起"会误计 click。
-                if let Some(ws) = &mut self.state {
-                    ws.button.cancel();
                 }
             }
             _ => {}
