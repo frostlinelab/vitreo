@@ -23,7 +23,8 @@ vitreo/            # pure wgpu: material + compositor + animation layer, zero UI
 ├─ GlassStyle      #   IOR, thickness, depth, bevel, blur, tint, dispersion
 ├─ Backdrop        #   static texture / offscreen live texture / video frame
 ├─ Compositor      #   multi-panel compositing, overlap Merge/Stack policies
-└─ GlassLayer      #   spring panels, drag/DPI handling, LiveBackdrop pipeline
+├─ GlassLayer      #   spring panels, drag/DPI handling, LiveBackdrop pipeline
+└─ GlassButton     #   capsule glass button — hover/press/click (first control)
 vitreo-egui        # egui bindings: EguiFrame render glue + system CJK fonts
 examples/
 ├─ minimal         # gradient/image backdrop + draggable glass panel ✓
@@ -39,7 +40,7 @@ Rust toolchain is pinned in `rust-toolchain.toml`; any GPU that wgpu supports (V
 cargo run -p minimal
 ```
 
-A gradient backdrop with a draggable glass panel opens. Dragging springs with a jelly feel — the silhouette stretches along the motion and the refraction lags behind (see [the optics report §7](docs/optics.en.md)). Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
+A gradient backdrop with a draggable glass panel opens. Dragging springs with a jelly feel — the silhouette stretches along the motion and the refraction lags behind (see [the optics report §7](docs/optics.en.md)). A capsule glass button sits near the bottom: press it and it micro-shrinks, then springs back with a jelly pop; the click counter lives in the parameter panel. Drop an image onto the window (or pass `--image path/to.png`, or use the file picker) to refract your own picture; the egui panel tunes IOR, bevel, dispersion, and Fresnel live.
 
 ```sh
 cargo run -p live-backdrop

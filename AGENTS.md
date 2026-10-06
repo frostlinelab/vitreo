@@ -20,6 +20,7 @@ vitreo/            # core crate: pure wgpu, zero UI deps
   src/spring.rs    #   spring integrator (smooth/bouncy/snappy presets) — the animation oracle
   src/animated.rs  #   AnimatedPanel: springs over center/size/radius/press; acceleration feeds GlassPanel
   src/layer.rs     #   GlassLayer: compositor + panels + drag state machine + LiveBackdrop + DPI
+  src/control.rs   #   GlassButton: capsule button (hover/press/click) — renderer-agnostic control
 vitreo-egui/       # egui binding crate (P3): pure egui/winit glue, zero wgpu-surface opinions
   src/frame.rs     #   EguiFrame: egui-wgpu/winit per-frame wiring (incl. textures_delta fix)
   src/fonts.rs     #   install_cjk_fonts: system CJK font loading
@@ -44,7 +45,7 @@ If you change any formula, update **all** of them in the same commit, run the te
 
 ```sh
 cargo build --workspace   # incremental is usually fast
-cargo test  --workspace   # 75 vitreo tests (optics/sdf/layout/strategy/jelly/spring/animated/layer) + vitreo-egui doc tests
+cargo test  --workspace   # 85 vitreo tests (optics/sdf/layout/strategy/jelly/spring/animated/layer/control) + vitreo-egui doc tests
 cargo clippy --workspace  # keep it clean
 ```
 

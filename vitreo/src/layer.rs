@@ -238,6 +238,38 @@ impl GlassLayer {
         );
     }
 
+    /// 静态背景合成 + 玻璃控件（按钮等固定元素）：`controls` 是控件的
+    /// 瞬时快照，与面板一起合入同一个 pass。面板 + 控件总计以
+    /// [`MAX_PANELS`] 为上限，超出部分被忽略。
+    // 渲染上下文与帧状态，参数各自独立，打包反而增加调用方样板（与 Compositor::render 同理）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_static_with_controls(
+        &self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        backdrop: &Backdrop,
+        target: &wgpu::TextureView,
+        viewport: [f32; 2],
+        time: f32,
+        controls: &[GlassPanel],
+    ) {
+        let (mut buf, count) = self.snapshot();
+        for (slot, control) in buf[count..].iter_mut().zip(controls) {
+            *slot = *control;
+        }
+        let total = (count + controls.len()).min(MAX_PANELS);
+        self.compositor.render(
+            queue,
+            encoder,
+            backdrop,
+            target,
+            viewport,
+            time,
+            self.strategy,
+            &buf[..total],
+        );
+    }
+
     /// 实时背景合成：内部先 GPU 生成 mip 链（blur 路径按 lod 采样），
     /// 再用 `live.size()` 作为视口合成。
     pub fn render_live(

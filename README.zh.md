@@ -23,7 +23,8 @@ vitreo/            # 纯 wgpu：材质 + 合成器 + 动画层，零 UI 依赖
 ├─ GlassStyle      #   IOR、thickness、depth、bevel、blur、tint、dispersion
 ├─ Backdrop        #   静态纹理 / 离屏实时纹理 / 视频帧
 ├─ Compositor      #   多面板合成、重叠 Merge/Stack 策略
-└─ GlassLayer      #   弹簧面板、拖拽/DPI 处理、LiveBackdrop 离屏管线
+├─ GlassLayer      #   弹簧面板、拖拽/DPI 处理、LiveBackdrop 离屏管线
+└─ GlassButton     #   胶囊玻璃按钮 —— 悬停/按压/点击（第一个控件）
 vitreo-egui        # egui 绑定：EguiFrame 帧接线 + 系统 CJK 字体
 examples/
 ├─ minimal         # 渐变/图片背景 + 可拖玻璃面板 ✓
@@ -39,7 +40,7 @@ Rust 工具链由 `rust-toolchain.toml` 钉死；任何 wgpu 支持的 GPU（Vul
 cargo run -p minimal
 ```
 
-会打开一个渐变背景 + 可拖拽玻璃面板的窗口。拖拽带弹簧果冻手感——轮廓沿运动方向拉伸、折射滞后于手势（见[光学报告 §7](docs/optics.zh.md)）。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
+会打开一个渐变背景 + 可拖拽玻璃面板的窗口。拖拽带弹簧果冻手感——轮廓沿运动方向拉伸、折射滞后于手势（见[光学报告 §7](docs/optics.zh.md)）。底部有一颗胶囊玻璃按钮：按下微缩、松开带果冻回弹，点击计数显示在参数面板里。把图片拖进窗口（或传 `--image 路径/到/图片.png`，或用文件选择器）即可折射你自己的图片；egui 面板实时调节 IOR、bevel、色散与 Fresnel。
 
 ```sh
 cargo run -p live-backdrop

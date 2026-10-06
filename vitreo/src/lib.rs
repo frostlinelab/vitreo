@@ -19,6 +19,12 @@
 //! - [`GlassLayer`] —— 至多 8 块面板 + 合成策略 + 拖拽状态机 + 可选离屏实时背景，
 //!   全部以物理像素与秒为单位，与 UI 框架无关。
 //!
+//! ## 控件
+//!
+//! [`GlassButton`] —— 胶囊玻璃按钮：悬停/按压/click 判定 + 按压微缩 +
+//! 果冻回弹。控件同样是渲染器无关的 CPU 状态机；文字与图标等"身份"
+//! 部分由各平台在玻璃体之上自绘。
+//!
 //! ## 用法
 //!
 //! ```no_run
@@ -48,6 +54,7 @@
 pub mod animated;
 pub mod backdrop;
 pub mod compositor;
+pub mod control;
 pub mod layer;
 pub mod optics;
 pub mod panel;
@@ -58,6 +65,7 @@ pub mod style;
 pub use animated::AnimatedPanel;
 pub use backdrop::{Backdrop, LiveBackdrop};
 pub use compositor::{Compositor, CompositeStrategy};
+pub use control::GlassButton;
 pub use layer::GlassLayer;
 pub use panel::GlassPanel;
 pub use spring::{Spring, SpringConfig};

@@ -119,4 +119,22 @@ impl GlassStyle {
     pub fn bk7_dispersion() -> f32 {
         abbe_spread(1.5168, 64.17)
     }
+
+    /// 控件预设（按钮/胶囊类）：更紧的倒角、更高的边缘高光与更利落的
+    /// 阴影。尺寸类参数（bevel/thickness/depth/shadow）由调用方按 DPI 缩放。
+    pub fn button() -> Self {
+        Self {
+            bevel: 30.0,
+            thickness: 7.0,
+            depth: 110.0,
+            dispersion: 0.12,
+            specular: 1.05,
+            shadow: ShadowStyle {
+                opacity: 0.25,
+                blur: 26.0,
+                offset: [0.0, 12.0],
+            },
+            ..Self::default()
+        }
+    }
 }
