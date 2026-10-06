@@ -1,0 +1,17 @@
+[package]
+name = "gallery"
+description = "Vitreo control exhibition: the GlassButton showcase (hover/press/click + material families)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+vitreo = { path = "../../vitreo" }
+vitreo-egui = { path = "../../vitreo-egui" }
+wgpu = { workspace = true }
+winit = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+env_logger = "0.11"

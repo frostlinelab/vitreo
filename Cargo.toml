@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["vitreo", "vitreo-egui", "examples/minimal", "examples/live-backdrop"]
+members = ["vitreo", "vitreo-egui", "examples/minimal", "examples/live-backdrop", "examples/gallery"]
 
 [workspace.package]
 version = "0.1.0"

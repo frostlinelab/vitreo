@@ -26,6 +26,7 @@ vitreo-egui/       # egui binding crate (P3): pure egui/winit glue, zero wgpu-su
   src/fonts.rs     #   install_cjk_fonts: system CJK font loading
 examples/minimal   # gradient/image backdrop + draggable spring panel (egui params)
 examples/live-backdrop  # glass refracting the app's own offscreen scene; M toggles Merge
+examples/gallery   # control exhibition: GlassButton showcase (hover/press/click, 6 material families)
 docs/optics.*.md   # physics report (EN primary, ZH translation)
 docs/figures/      # bilingual figure pipeline, see below
 ```
